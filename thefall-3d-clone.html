@@ -1,0 +1,2130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TheFall.io 3D Clone</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #05070d; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; height: 100%; }
+  #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+  #ui {
+    position: absolute; top: 20px; left: 20px; color: #fff;
+    font-size: 26px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+    pointer-events: none; user-select: none;
+  }
+  #ui .label { font-size: 13px; font-weight: 500; opacity: .7; letter-spacing: 2px; text-transform: uppercase; }
+  #activeBoosts {
+    position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column;
+    gap: 8px; pointer-events: none; width: 190px;
+  }
+  .boost-row {
+    background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); border-radius: 8px;
+    padding: 7px 10px; backdrop-filter: blur(4px);
+  }
+  .boost-name {
+    color: #fff; font-size: 12px; font-weight: 800; letter-spacing: 1px;
+    text-shadow: 0 2px 4px rgba(0,0,0,.6); margin-bottom: 5px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .boost-bar-track {
+    height: 6px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden;
+  }
+  .boost-bar-fill {
+    height: 100%; width: 100%; border-radius: 4px; transition: width .08s linear;
+  }
+  #crosshair-hint {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,.6); font-size: 13px; letter-spacing: 1px; pointer-events: none;
+    text-align: center; text-shadow: 0 2px 4px rgba(0,0,0,.7);
+  }
+
+  #loading {
+    position: absolute; inset: 0; background: #05070d; color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 18px; letter-spacing: 2px; z-index: 20;
+  }
+  #loading .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(255,255,255,.15); border-top-color: #00ff88;
+    animation: spin 0.9s linear infinite; margin-bottom: 18px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .modal {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(10,12,20,.92); border: 1px solid rgba(255,255,255,.12);
+    padding: 36px 44px; border-radius: 14px; text-align: center; color: white;
+    display: none; min-width: 300px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal h2 { margin: 0 0 6px; font-size: 28px; letter-spacing: 1px; color: #ff5566; }
+  .modal p { margin: 6px 0; opacity: .85; }
+  .modal .score-final { font-size: 40px; font-weight: 900; color: #00ff88; margin: 14px 0; }
+  button#retryBtn {
+    margin-top: 16px; padding: 12px 30px; font-size: 16px; cursor: pointer; border: none;
+    background: #00ff88; color: #06210f; font-weight: 800; border-radius: 8px; letter-spacing: 1px;
+    transition: transform .15s ease, background .15s ease;
+  }
+  button#retryBtn:hover { background: #33ffa2; transform: translateY(-2px); }
+
+  #flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+    transition: opacity .12s ease; z-index: 5;
+  }
+
+  /* --- Écrans plein cadre : accueil / boutique --- */
+  .screen {
+    position: absolute; inset: 0; z-index: 15;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(5,7,13,.72); backdrop-filter: blur(6px);
+  }
+  .screen-panel {
+    background: rgba(10,12,20,.92); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 16px; padding: 38px 46px; text-align: center; color: #fff;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5); max-width: 90vw;
+  }
+  .game-title {
+    font-size: 42px; font-weight: 900; letter-spacing: 2px; margin: 0 0 6px;
+    background: linear-gradient(135deg, #00ff88, #3fc9ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .game-subtitle { opacity: .65; font-size: 13px; letter-spacing: 3px; margin-bottom: 26px; text-transform: uppercase; }
+
+  .wallet-display {
+    display: inline-flex; align-items: center; gap: 8px; background: rgba(255,210,63,.12);
+    border: 1px solid rgba(255,210,63,.4); color: #ffd23f; font-weight: 800; font-size: 16px;
+    padding: 8px 18px; border-radius: 30px; margin-bottom: 24px; letter-spacing: 1px;
+  }
+
+  .menu-buttons { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+  .menu-buttons button, .screen-panel .secondary-btn {
+    padding: 14px 40px; font-size: 16px; cursor: pointer; border: none; border-radius: 8px;
+    font-weight: 800; letter-spacing: 1px; transition: transform .15s ease, background .15s ease;
+  }
+  #playBtn { background: #00ff88; color: #06210f; }
+  #playBtn:hover { background: #33ffa2; transform: translateY(-2px); }
+  #shopBtn, #shopBackBtn, #gameoverMenuBtn { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25) !important; }
+  #shopBtn:hover, #shopBackBtn:hover, #gameoverMenuBtn:hover { background: rgba(255,255,255,.2); transform: translateY(-2px); }
+
+  #shopGrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px;
+    margin: 6px 0 26px; max-width: 560px;
+  }
+  .skin-card {
+    background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.12); border-radius: 12px;
+    padding: 14px 10px; cursor: pointer; transition: border-color .15s ease, transform .15s ease;
+  }
+  .skin-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.35); }
+  .skin-card.equipped { border-color: #00ff88; }
+  .skin-card.locked { opacity: .85; }
+  .skin-swatch {
+    width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 10px;
+    border: 3px solid rgba(255,255,255,.2); box-shadow: inset 0 -6px 10px rgba(0,0,0,.25);
+  }
+  .skin-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .skin-price { font-size: 12px; opacity: .75; }
+  .skin-price.owned { color: #00ff88; font-weight: 800; }
+  .skin-price.equipped { color: #ffd23f; font-weight: 800; }
+
+  /* --- Paramètres --- */
+  .setting-row { text-align: left; margin-bottom: 22px; }
+  .setting-label { font-size: 13px; font-weight: 700; letter-spacing: 1px; opacity: .8; margin-bottom: 8px; }
+  .option-group { display: flex; gap: 8px; }
+  .option-btn {
+    flex: 1; padding: 10px 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+    background: rgba(255,255,255,.08); color: #fff; border: 2px solid rgba(255,255,255,.15);
+    border-radius: 8px; transition: all .15s ease;
+  }
+  .option-btn.active { background: rgba(0,255,136,.18); border-color: #00ff88; color: #00ff88; }
+  .setting-input {
+    width: 100%; padding: 10px 12px; font-size: 13px; font-family: inherit;
+    background: rgba(255,255,255,.08); color: #fff; border: 2px solid rgba(255,255,255,.15);
+    border-radius: 8px; margin-bottom: 8px;
+  }
+  .setting-input:focus { outline: none; border-color: #3fc9ff; }
+  .mp-status { font-size: 12px; opacity: .8; }
+  #mpBadge {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 8;
+    background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); border-radius: 20px;
+    padding: 6px 16px; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+    pointer-events: none; display: none;
+  }
+  #mpBadge.visible { display: block; }
+
+  /* --- Contrôles tactiles (mobile) --- */
+  #touchControls { position: absolute; inset: 0; z-index: 12; display: none; pointer-events: none; }
+  #touchControls.visible { display: block; }
+  .joystick-base {
+    position: absolute; left: 30px; bottom: 30px; width: 120px; height: 120px;
+    border-radius: 50%; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.25);
+    pointer-events: auto; touch-action: none;
+  }
+  .joystick-knob {
+    position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%;
+    background: rgba(255,255,255,.28); border: 2px solid rgba(255,255,255,.5);
+    transform: translate(-50%, -50%); pointer-events: none;
+  }
+  .mobile-btn {
+    position: absolute; right: 36px; bottom: 42px; width: 84px; height: 84px; border-radius: 50%;
+    background: rgba(0,255,136,.18); border: 2px solid rgba(0,255,136,.6); color: #00ff88;
+    font-size: 12px; font-weight: 800; letter-spacing: 1px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    pointer-events: auto; touch-action: none; user-select: none;
+  }
+  .mobile-btn:active { background: rgba(0,255,136,.35); }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div>Chargement de l'arène...</div>
+
+<div id="ui">
+  <div class="label">Score</div>
+  <span id="scoreVal">0</span>
+</div>
+
+<div id="activeBoosts"></div>
+<div id="mpBadge"></div>
+
+<div id="crosshair-hint">ZQSD / Flèches : se déplacer &nbsp;·&nbsp; ESPACE : sauter</div>
+
+<div id="flash"></div>
+
+<div id="gameover" class="modal">
+  <h2>GAME OVER</h2>
+  <p>Tu es tombé dans le vide.</p>
+  <div class="score-final"><span id="finalScore">0</span></div>
+  <button id="retryBtn">Rejouer</button>
+  <button id="gameoverMenuBtn" class="secondary-btn">Menu</button>
+</div>
+
+<div id="homeScreen" class="screen">
+  <div class="screen-panel">
+    <h1 class="game-title">THEFALL.IO</h1>
+    <div class="game-subtitle">Survis le plus longtemps possible</div>
+    <div class="wallet-display">🪙 <span id="walletVal">0</span></div>
+    <div class="menu-buttons">
+      <button id="playBtn">JOUER</button>
+      <button id="shopBtn" class="secondary-btn">BOUTIQUE</button>
+      <button id="settingsBtn" class="secondary-btn">PARAMÈTRES</button>
+    </div>
+  </div>
+</div>
+
+<div id="shopScreen" class="screen" style="display:none;">
+  <div class="screen-panel">
+    <h1 class="game-title" style="font-size:30px;">BOUTIQUE</h1>
+    <div class="wallet-display">🪙 <span id="shopWalletVal">0</span></div>
+    <div id="shopGrid"></div>
+    <button id="shopBackBtn" class="secondary-btn">RETOUR</button>
+  </div>
+</div>
+
+<div id="settingsScreen" class="screen" style="display:none;">
+  <div class="screen-panel">
+    <h1 class="game-title" style="font-size:30px;">PARAMÈTRES</h1>
+    <div class="setting-row">
+      <div class="setting-label">JOYSTICK TACTILE</div>
+      <div class="option-group" id="touchControlsOptions">
+        <button class="option-btn" data-value="auto">AUTO</button>
+        <button class="option-btn" data-value="on">ACTIVÉ</button>
+        <button class="option-btn" data-value="off">DÉSACTIVÉ</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">SERVEUR MULTIJOUEUR (LAN, optionnel)</div>
+      <input id="mpServerInput" class="setting-input" type="text" placeholder="ws://192.168.1.X:8787">
+      <div id="mpStatus" class="mp-status">⚪ Non connecté (mode solo)</div>
+    </div>
+    <button id="settingsBackBtn" class="secondary-btn">RETOUR</button>
+  </div>
+</div>
+
+<div id="touchControls">
+  <div class="joystick-base" id="joystickBase">
+    <div class="joystick-knob" id="joystickKnob"></div>
+  </div>
+  <div class="mobile-btn" id="jumpBtnTouch">SAUT</div>
+</div>
+
+<div id="canvas-container"></div>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* =========================================================================
+   CONFIG
+   ========================================================================= */
+const GRID_SIZE       = 32;                 // hexagones par côté (grande arène)
+const HEX_SIZE         = 1.2;               // rayon du centre à un sommet de l'hexagone
+const HEX_APOTHEM      = HEX_SIZE * Math.sqrt(3) / 2; // centre -> côté plat de l'hexagone
+const BLOCK_HEIGHT    = 0.6;
+const BLOCK_TOP_Y     = 0;                  // surface des blocs
+const REGEN_MIN_MS    = 5000;
+const REGEN_MAX_MS    = 10000;
+const BREAK_DELAY_MS  = 500;
+const MASS_REGEN_RATIO= 0.4;                // 40% détruit -> régénération totale
+const GRAVITY         = -26;
+const JUMP_FORCE      = 10.5;
+const BASE_SPEED      = 6.2;
+const SPEED_BOOST_MUL = 1.7;
+const SPEED_BOOST_MS  = 5000;
+const DOUBLE_JUMP_MS  = 9000;
+const FALL_DEATH_Y    = -18;
+const SCORE_RATE      = 12;                 // points / seconde en survie
+const COIN_SCORE      = 15;
+
+// --- Armes / boosts spéciaux ---
+const WEAPON_RANGE           = 42;    // portée max d'un tir avant qu'il disparaisse
+const PROJECTILE_SPEED       = 26;
+const PROJECTILE_HEIGHT      = 0.42;  // tir bas -> esquivable en sautant par-dessus
+const PISTOL_PUSH_FORCE      = 14;
+const SHIELD_REGEN_TICK_MS   = 200;   // fréquence de vérification de régénération
+const CHAOS_PUSH_RADIUS      = 2.4;
+const CHAOS_PUSH_FORCE       = 16;
+
+const BOOST_TYPES = {
+  pistol:    { name: 'PISTOLET',        duration: 900,  color: 0xdcdce6 },
+  bazooka:   { name: 'BAZOOKA',         duration: 1200, color: 0xff8a3d },
+  shield:    { name: 'RÉGÉNÉRATEUR',    duration: 8000,  color: 0x33ff88 },
+  chaos:     { name: 'CHAMBOULE-TOUT',  duration: 8000,  color: 0xff4455 },
+  extraLife: { name: '2E VIE',          duration: 7000,  color: 0xffd23f },
+  speed:     { name: 'VITESSE',         duration: SPEED_BOOST_MS, color: 0x3fc9ff },
+  jump:      { name: 'DOUBLE SAUT',     duration: DOUBLE_JUMP_MS, color: 0xa566ff }
+};
+
+// --- Géométrie de grille hexagonale (nid d'abeille "pointy-top", sans espace) ---
+// Hexagones adjacents séparés exactement de HEX_SIZE*sqrt(3) dans toutes les
+// directions -> ils partagent leurs arêtes, aucun espace visible entre eux.
+function axialToPixel(q, r) {
+  return {
+    x: HEX_SIZE * Math.sqrt(3) * (q + r / 2),
+    z: HEX_SIZE * 1.5 * r
+  };
+}
+function offsetToAxial(col, row) { // disposition "odd-r", pointy-top
+  return { q: col - (row - (row & 1)) / 2, r: row };
+}
+function axialToOffset(q, r) {
+  return { col: q + (r - (r & 1)) / 2, row: r };
+}
+function pixelToAxial(x, z) {
+  return {
+    q: (Math.sqrt(3) / 3 * x - z / 3) / HEX_SIZE,
+    r: (2 / 3 * z) / HEX_SIZE
+  };
+}
+function axialRound(qf, rf) {
+  let x = qf, z = rf, y = -x - z;
+  let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+  const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+  if (dx > dy && dx > dz) rx = -ry - rz;
+  else if (dy > dz) ry = -rx - rz;
+  else rz = -rx - ry;
+  return { q: rx, r: rz };
+}
+
+// Position brute (non centrée) de chaque case, calculée une fois pour trouver le centre de la grille
+const RAW_HEX_POS = [];
+let hexMinX = Infinity, hexMaxX = -Infinity, hexMinZ = Infinity, hexMaxZ = -Infinity;
+for (let col = 0; col < GRID_SIZE; col++) {
+  RAW_HEX_POS[col] = [];
+  for (let row = 0; row < GRID_SIZE; row++) {
+    const { q, r } = offsetToAxial(col, row);
+    const p = axialToPixel(q, r);
+    RAW_HEX_POS[col][row] = p;
+    if (p.x < hexMinX) hexMinX = p.x;
+    if (p.x > hexMaxX) hexMaxX = p.x;
+    if (p.z < hexMinZ) hexMinZ = p.z;
+    if (p.z > hexMaxZ) hexMaxZ = p.z;
+  }
+}
+const GRID_CENTER_X = (hexMinX + hexMaxX) / 2;
+const GRID_CENTER_Z = (hexMinZ + hexMaxZ) / 2;
+
+// Mur invisible : le joueur ne peut jamais dépasser le pourtour de l'arène,
+// donc jamais tomber "par le bord" — seule la destruction d'un hexagone (ou
+// d'un fragment de bordure, désormais aussi marchable/destructible) sous ses
+// pieds peut le faire chuter.
+// X : les fragments de bordure comblent exactement la moitié d'hexagone
+// manquante, donc le vrai bord marchable va jusqu'à ±HEX_APOTHEM au-delà des
+// centres d'hexagones extrêmes (marge de sécurité de 2cm en retrait).
+const ARENA_MIN_X = hexMinX - GRID_CENTER_X - HEX_APOTHEM + 0.02;
+const ARENA_MAX_X = hexMaxX - GRID_CENTER_X + HEX_APOTHEM - 0.02;
+// Z : pas de fragment de bordure sur cet axe, donc marge de sécurité EN DEÇÀ
+// du centre des hexagones extrêmes (vérifié numériquement, cf. session précédente).
+const ARENA_MARGIN_Z = -HEX_SIZE * 0.15;
+const ARENA_MIN_Z = hexMinZ - GRID_CENTER_Z - ARENA_MARGIN_Z;
+const ARENA_MAX_Z = hexMaxZ - GRID_CENTER_Z + ARENA_MARGIN_Z;
+
+/* =========================================================================
+   SCENE / RENDERER / CAMERA
+   ========================================================================= */
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+scene.fog = new THREE.FogExp2(0x05070d, 0.028);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+// Caméra à angle FIXE : elle ne fait que suivre la position du joueur en translation,
+// elle ne tourne JAMAIS autour de lui. La gauche reste toujours la gauche à l'écran,
+// le haut reste le haut, quelle que soit la direction dans laquelle le personnage se tourne.
+const CAM_OFFSET = new THREE.Vector3(0, 11, 13);
+const camTarget = new THREE.Vector3();
+const camCurrentPos = new THREE.Vector3(0, 12, 14);
+camera.position.copy(camCurrentPos);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* =========================================================================
+   LUMIÈRES
+   ========================================================================= */
+scene.add(new THREE.AmbientLight(0x8899cc, 0.55));
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.7);
+sun.position.set(18, 26, 12);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -30;
+sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30;
+sun.shadow.camera.bottom = -30;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 80;
+scene.add(sun);
+
+const rim = new THREE.PointLight(0x3fc9ff, 1.1, 60);
+rim.position.set(-15, 10, -15);
+scene.add(rim);
+
+/* =========================================================================
+   ÉTOILES DE FOND (ambiance vide spatial)
+   ========================================================================= */
+{
+  const starGeo = new THREE.BufferGeometry();
+  const starCount = 800;
+  const positions = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const r = 80 + Math.random() * 120;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = Math.abs(r * Math.cos(phi)) * 0.5 - 10;
+    positions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, sizeAttenuation: true });
+  scene.add(new THREE.Points(starGeo, starMat));
+}
+
+/* =========================================================================
+   ARÈNE DESTRUCTIBLE
+   ========================================================================= */
+// Hexagone "pointy-top" par défaut (sommet aligné sur +Z) : orientation exigée
+// par les formules axiales ci-dessus pour un pavage sans espace.
+const blockGeo = new THREE.CylinderGeometry(HEX_SIZE, HEX_SIZE, BLOCK_HEIGHT, 6);
+const COLOR_NORMAL = new THREE.Color(0x2d6cdf);
+const COLOR_WARN   = new THREE.Color(0xff3b30);
+
+// Contour partagé pour délimiter chaque hexagone (ajouté en enfant de chaque
+// bloc : il suit donc automatiquement sa chute, sa disparition et sa réapparition).
+const hexEdgesGeo = new THREE.EdgesGeometry(blockGeo);
+const hexEdgesMat = new THREE.LineBasicMaterial({ color: 0x0a1830, transparent: true, opacity: 0.85 });
+
+// Grille en "nid d'abeille" décalé (odd-r) : une rangée sur deux est décalée
+// d'un demi-hexagone, ce qui laisse une bande vide en zigzag sur les bords
+// gauche/droit. On la comble avec un fragment d'hexagone (une moitié, coupée
+// par le milieu) plutôt qu'un pavé rectangulaire, pour rester cohérent avec
+// la forme des tuiles. Ces fragments sont maintenant des blocs à part entière :
+// marchables et destructibles comme les hexagones normaux.
+function makeHalfHexGeometry(sign) { // sign = +1 (comble à droite) ou -1 (comble à gauche)
+  const shape = new THREE.Shape();
+  // Forme retournée : le côté étroit (une arête de l'hexagone, longueur R)
+  // touche l'hexagone réel, le côté large (longueur 2R) fait face au mur.
+  shape.moveTo(0, HEX_SIZE * 0.5);
+  shape.lineTo(0, -HEX_SIZE * 0.5);
+  shape.lineTo(sign * HEX_APOTHEM, -HEX_SIZE);
+  shape.lineTo(sign * HEX_APOTHEM, HEX_SIZE);
+  shape.lineTo(0, HEX_SIZE * 0.5);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: BLOCK_HEIGHT, bevelEnabled: false });
+  geo.rotateX(-Math.PI / 2);       // pose la forme à plat au sol (extrusion -> hauteur Y)
+  geo.translate(0, -BLOCK_HEIGHT / 2, 0); // centre verticalement, comme les hexagones normaux
+  return geo;
+}
+const fillerGeoRight = makeHalfHexGeometry(1);
+const fillerGeoLeft = makeHalfHexGeometry(-1);
+const fillerEdgesGeoRight = new THREE.EdgesGeometry(fillerGeoRight);
+const fillerEdgesGeoLeft = new THREE.EdgesGeometry(fillerGeoLeft);
+
+const blocksGroup = new THREE.Group();
+scene.add(blocksGroup);
+
+let blocks = [];       // tableau plat de tous les blocs (hexagones + fragments de bordure)
+let borderBlocks = [];  // sous-ensemble des fragments de bordure, avec leur boîte englobante (pour la détection au sol)
+let fallingBlocks = []; // blocs en cours de chute animée
+let destroyedCount = 0;
+
+function gridToWorld(gx, gz) {
+  const p = RAW_HEX_POS[gx][gz];
+  return { x: p.x - GRID_CENTER_X, z: p.z - GRID_CENTER_Z };
+}
+
+function makeBlockMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: COLOR_NORMAL.clone(),
+    roughness: 0.55,
+    metalness: 0.15,
+    emissive: 0x000000
+  });
+}
+
+function buildArena() {
+  blocksGroup.clear();
+  blocks = [];
+  borderBlocks = [];
+  fallingBlocks = [];
+  destroyedCount = 0;
+
+  for (let gx = 0; gx < GRID_SIZE; gx++) {
+    for (let gz = 0; gz < GRID_SIZE; gz++) {
+      const { x, z } = gridToWorld(gx, gz);
+      const mat = makeBlockMaterial();
+      const mesh = new THREE.Mesh(blockGeo, mat);
+      mesh.position.set(x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.add(new THREE.LineSegments(hexEdgesGeo, hexEdgesMat));
+      blocksGroup.add(mesh);
+
+      const block = {
+        mesh, gx, gz, x, z,
+        alive: true,
+        breaking: false,
+        falling: false,
+        respawnTimer: null,
+        breakTimer: null,
+        fallVelocity: 0,
+        fallRotSpeed: (Math.random() - 0.5) * 4
+      };
+      mesh.userData.block = block;
+      blocks.push(block);
+    }
+  }
+
+  buildBorderFillers();
+}
+
+function buildBorderFillers() {
+  for (let row = 0; row < GRID_SIZE; row++) {
+    const isOddRow = (row & 1) === 1;
+    const edgeCol = isOddRow ? 0 : GRID_SIZE - 1;
+    const { x, z } = gridToWorld(edgeCol, row);
+    // Le fragment part de x=0 (son bord plat, collé contre l'hexagone réel)
+    // jusqu'à x=±HEX_APOTHEM : on le positionne donc directement sur le bord
+    // plat de l'hexagone de bordure, sans décalage supplémentaire.
+    const fillerX = isOddRow ? x - HEX_APOTHEM : x + HEX_APOTHEM;
+    const geo = isOddRow ? fillerGeoLeft : fillerGeoRight;
+    const edgesGeo = isOddRow ? fillerEdgesGeoLeft : fillerEdgesGeoRight;
+
+    const mesh = new THREE.Mesh(geo, makeBlockMaterial());
+    mesh.position.set(fillerX, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.add(new THREE.LineSegments(edgesGeo, hexEdgesMat));
+    blocksGroup.add(mesh);
+
+    const block = {
+      mesh, gx: -1, gz: -1, x: fillerX, z,
+      alive: true,
+      breaking: false,
+      falling: false,
+      respawnTimer: null,
+      breakTimer: null,
+      fallVelocity: 0,
+      fallRotSpeed: (Math.random() - 0.5) * 4,
+      // Boîte englobante utilisée pour détecter que le joueur marche dessus
+      // (ces fragments sont hors de la grille hexagonale régulière).
+      minX: isOddRow ? fillerX - HEX_APOTHEM : fillerX,
+      maxX: isOddRow ? fillerX : fillerX + HEX_APOTHEM,
+      minZ: z - HEX_SIZE,
+      maxZ: z + HEX_SIZE
+    };
+    mesh.userData.block = block;
+    blocks.push(block);
+    borderBlocks.push(block);
+  }
+}
+buildArena();
+
+function blockAt(gx, gz) {
+  if (gx < 0 || gz < 0 || gx >= GRID_SIZE || gz >= GRID_SIZE) return null;
+  return blocks[gx * GRID_SIZE + gz];
+}
+
+function worldToGrid(x, z) {
+  const { q, r } = pixelToAxial(x + GRID_CENTER_X, z + GRID_CENTER_Z);
+  const rounded = axialRound(q, r);
+  const { col, row } = axialToOffset(rounded.q, rounded.r);
+  return { gx: col, gz: row };
+}
+
+// Cherche le bloc sous une position donnée : d'abord dans la grille hexagonale
+// régulière, sinon parmi les fragments de bordure (boîte englobante, car ils
+// sont hors du pavage hexagonal normal).
+function findBlockUnderPlayer(x, z) {
+  const { gx, gz } = worldToGrid(x, z);
+  const gridBlock = blockAt(gx, gz);
+  if (gridBlock) return gridBlock;
+  for (const b of borderBlocks) {
+    if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return b;
+  }
+  return null;
+}
+
+// Partie purement visuelle (passer en rouge) — utilisée seule par le réseau
+// en multijoueur, où c'est le SERVEUR qui programme la destruction réelle
+// (message "blockDestroy") ; un client ne doit jamais programmer son propre
+// minuteur en plus, sous peine de casser le bloc deux fois / désynchroniser
+// le délai de réapparition.
+function applyBreakingVisual(block) {
+  if (!block.alive || block.breaking) return;
+  block.breaking = true;
+  block.mesh.material.color.copy(COLOR_WARN);
+  block.mesh.material.emissive.set(0x551010);
+}
+
+// Version solo/locale complète : passe en rouge ET programme la destruction.
+function startBreaking(block) {
+  applyBreakingVisual(block);
+  if (block.breaking && !block.breakTimer) {
+    block.breakTimer = setTimeout(() => destroyBlock(block), BREAK_DELAY_MS);
+  }
+}
+
+// opts.skipRespawnTimer : utilisé en multijoueur, où c'est le serveur qui
+// décide seul du moment de la réapparition (message "blockRespawn") — le
+// client ne doit pas programmer son propre minuteur en plus, sous peine de
+// désynchroniser la réapparition entre les joueurs.
+function destroyBlock(block, opts) {
+  if (!block.alive) return; // idempotent (peut être appelé par un minuteur local ET un message serveur)
+  opts = opts || {};
+  block.alive = false;
+  block.falling = true;
+  block.fallVelocity = 0;
+  fallingBlocks.push(block);
+  destroyedCount++;
+
+  if (!opts.skipRespawnTimer) {
+    const delay = REGEN_MIN_MS + Math.random() * (REGEN_MAX_MS - REGEN_MIN_MS);
+    block.respawnTimer = setTimeout(() => respawnBlock(block), delay);
+  }
+
+  // En multijoueur, c'est le serveur qui décide seul des régénérations de
+  // masse (il tient son propre compte des blocs détruits) ; le client ne
+  // doit pas en déclencher une de son côté, ça désynchroniserait l'arène.
+  if (!multiplayerActive) checkMassRegen();
+}
+
+function respawnBlock(block) {
+  if (block.alive) return; // idempotent (peut être appelé par un minuteur local ET un message serveur)
+  block.alive = true;
+  block.breaking = false;
+  block.falling = false;
+  block.mesh.visible = true;
+  block.mesh.position.set(block.x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, block.z);
+  block.mesh.rotation.set(0, 0, 0);
+  block.mesh.scale.set(0.001, 0.001, 0.001);
+  block.mesh.material.color.copy(COLOR_NORMAL);
+  block.mesh.material.emissive.set(0x000000);
+  block.popIn = 0;
+  destroyedCount = Math.max(0, destroyedCount - 1);
+  fallingBlocks = fallingBlocks.filter(b => b !== block);
+}
+
+function checkMassRegen() {
+  if (destroyedCount / blocks.length >= MASS_REGEN_RATIO) {
+    regenerateAllInstant();
+  }
+}
+
+function regenerateAllInstant() {
+  flashScreen();
+  blocks.forEach(block => {
+    // Les hexagones déjà en cours de cassure (rouge, compte à rebours) ne sont
+    // PAS sauvés par la régénération de masse : sinon un joueur/bot immobile
+    // dessus ne pourrait plus jamais tomber si la régén se déclenche souvent
+    // (ex. avec beaucoup de bazookas sur la carte).
+    if (block.breaking) return;
+    if (block.respawnTimer) clearTimeout(block.respawnTimer);
+    block.respawnTimer = null;
+    block.alive = true;
+    block.falling = false;
+    block.mesh.visible = true;
+    block.mesh.position.set(block.x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, block.z);
+    block.mesh.rotation.set(0, 0, 0);
+    block.mesh.scale.set(0.001, 0.001, 0.001);
+    block.mesh.material.color.copy(COLOR_NORMAL);
+    block.mesh.material.emissive.set(0x224488);
+    block.popIn = 0;
+  });
+  fallingBlocks = [];
+  destroyedCount = blocks.filter(b => !b.alive).length;
+}
+
+function flashScreen(color) {
+  const flash = document.getElementById('flash');
+  flash.style.background = color || '#fff';
+  flash.style.opacity = '0.85';
+  setTimeout(() => { flash.style.opacity = '0'; }, 140);
+}
+
+/* =========================================================================
+   COLLECTIBLES : PIÈCES + ORBES DE BONUS
+   ========================================================================= */
+const coinGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.12, 20);
+const coinMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, metalness: 0.9, roughness: 0.2, emissive: 0x554400 });
+
+const orbGeo = new THREE.IcosahedronGeometry(0.42, 1);
+const speedOrbMat = new THREE.MeshStandardMaterial({ color: 0x3fc9ff, emissive: 0x1a5f8a, emissiveIntensity: 1.4, roughness: 0.2 });
+const jumpOrbMat  = new THREE.MeshStandardMaterial({ color: 0xa566ff, emissive: 0x4b1f8a, emissiveIntensity: 1.4, roughness: 0.2 });
+
+// --- Formes des boosts spéciaux : chacune reconnaissable à sa silhouette ---
+const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d46, roughness: 0.4, metalness: 0.6 });
+const gunAccentMat = new THREE.MeshStandardMaterial({ color: 0xdcdce6, emissive: 0x444455, roughness: 0.3, metalness: 0.7 });
+function makePistolTemplate() { // silhouette de pistolet (canon + crosse)
+  const g = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.11, 0.11), gunMat);
+  barrel.position.set(0.16, 0.08, 0);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.32, 0.11), gunMat);
+  grip.position.set(-0.16, -0.1, 0);
+  grip.rotation.z = -0.25;
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.13), gunAccentMat);
+  tip.position.set(0.42, 0.08, 0);
+  g.add(barrel, grip, tip);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+const bazookaMat = new THREE.MeshStandardMaterial({ color: 0x4a5d3a, roughness: 0.5, metalness: 0.4 });
+const bazookaAccentMat = new THREE.MeshStandardMaterial({ color: 0xff8a3d, emissive: 0x662200, roughness: 0.3 });
+function makeBazookaTemplate() { // gros tube + évasement, bien plus massif que le pistolet
+  const g = new THREE.Group();
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.85, 12), bazookaMat);
+  tube.rotation.z = Math.PI / 2;
+  const bell = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.23, 0.22, 12), bazookaAccentMat);
+  bell.rotation.z = Math.PI / 2;
+  bell.position.x = 0.53;
+  g.add(tube, bell);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+const shieldRingMat = new THREE.MeshStandardMaterial({ color: 0x33ff88, emissive: 0x116633, emissiveIntensity: 1.3, roughness: 0.25 });
+const shieldCoreMat = new THREE.MeshStandardMaterial({ color: 0xccffdd, emissive: 0x33ff88, emissiveIntensity: 1.6, roughness: 0.2 });
+function makeShieldTemplate() { // anneau + noyau lumineux, forme de bouclier
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.07, 8, 20), shieldRingMat);
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 0), shieldCoreMat);
+  g.add(ring, core);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+const chaosCoreMat = new THREE.MeshStandardMaterial({ color: 0xff4455, emissive: 0x881122, emissiveIntensity: 1.4, roughness: 0.3 });
+const chaosSpikeMat = new THREE.MeshStandardMaterial({ color: 0xff8866, emissive: 0x551100, roughness: 0.3 });
+function makeChaosTemplate() { // boule hérissée de pointes, silhouette "danger/chaos"
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 0), chaosCoreMat));
+  const spikeCount = 8;
+  for (let i = 0; i < spikeCount; i++) {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.28, 6), chaosSpikeMat);
+    const phi = Math.acos(1 - 2 * (i + 0.5) / spikeCount);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const dir = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta));
+    spike.position.copy(dir.clone().multiplyScalar(0.28));
+    spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    g.add(spike);
+  }
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+const starMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0x996600, emissiveIntensity: 1.2, roughness: 0.25, metalness: 0.5 });
+function makeStarShape(outerR, innerR, points) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+const starGeo = new THREE.ExtrudeGeometry(makeStarShape(0.34, 0.15, 5), { depth: 0.1, bevelEnabled: false });
+starGeo.center();
+function makeExtraLifeTemplate() { // étoile à 5 branches, classique symbole de "vie bonus"
+  const mesh = new THREE.Mesh(starGeo, starMat);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+// Modèles réutilisés par clonage à chaque apparition (mêmes matériaux, moins de mémoire).
+const BOOST_TEMPLATES = {
+  pistol: makePistolTemplate(),
+  bazooka: makeBazookaTemplate(),
+  shield: makeShieldTemplate(),
+  chaos: makeChaosTemplate(),
+  extraLife: makeExtraLifeTemplate()
+};
+const BOOST_KEYS = Object.keys(BOOST_TEMPLATES);
+
+let collectibles = []; // {mesh, type, block, baseY, spawnT}
+const MAX_COINS = 60;
+const MAX_ORBS = 14;
+const MAX_PER_BOOST_TYPE = 6;   // plusieurs exemplaires du même boost possibles à la fois
+const BOOST_SPAWN_CHANCE = 0.75; // probabilité, à chaque tick, de faire apparaître un boost spécial
+
+// Construit le mesh d'un objet à ramasser pour un type donné — factorisé pour
+// être réutilisé aussi bien par l'apparition locale (solo) que par les
+// apparitions décidées par le serveur (multijoueur).
+function createCollectibleMeshForType(type) {
+  let mesh, baseY;
+  if (type === 'coin') {
+    mesh = new THREE.Mesh(coinGeo, coinMat);
+    mesh.rotation.x = Math.PI / 2;
+    baseY = BLOCK_TOP_Y + 0.9;
+  } else if (type === 'speed' || type === 'jump') {
+    mesh = new THREE.Mesh(orbGeo, type === 'speed' ? speedOrbMat : jumpOrbMat);
+    baseY = BLOCK_TOP_Y + 0.9;
+  } else {
+    mesh = BOOST_TEMPLATES[type].clone();
+    baseY = BLOCK_TOP_Y + 1.05;
+  }
+  mesh.castShadow = true;
+  return { mesh, baseY };
+}
+
+function spawnCollectible() {
+  // En multijoueur, c'est le serveur qui décide seul des apparitions (message
+  // "collectibleSpawn"), pour que tous les joueurs voient les mêmes objets.
+  if (multiplayerActive) return;
+
+  const aliveBlocks = blocks.filter(b => b.alive && !b.breaking);
+  if (aliveBlocks.length === 0) return;
+
+  // Boosts spéciaux : plusieurs exemplaires de chaque type possibles en même temps.
+  if (Math.random() < BOOST_SPAWN_CHANCE) {
+    const available = BOOST_KEYS.filter(k => collectibles.filter(c => c.type === k).length < MAX_PER_BOOST_TYPE);
+    if (available.length > 0) {
+      const type = available[Math.floor(Math.random() * available.length)];
+      const block = aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)];
+      if (!collectibles.some(c => c.block === block)) {
+        const { mesh, baseY } = createCollectibleMeshForType(type);
+        mesh.position.set(block.x, baseY, block.z);
+        scene.add(mesh);
+        collectibles.push({ mesh, type, block, baseY, spawnT: performance.now() });
+      }
+      return;
+    }
+  }
+
+  const coinCount = collectibles.filter(c => c.type === 'coin').length;
+  const orbCount  = collectibles.filter(c => c.type === 'speed' || c.type === 'jump').length;
+
+  const spawnOrb = orbCount < MAX_ORBS && Math.random() < 0.25;
+  if (!spawnOrb && coinCount >= MAX_COINS) return;
+  if (spawnOrb && orbCount >= MAX_ORBS) return;
+
+  const block = aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)];
+  if (collectibles.some(c => c.block === block)) return;
+
+  const type = spawnOrb ? (Math.random() < 0.5 ? 'speed' : 'jump') : 'coin';
+  const { mesh, baseY } = createCollectibleMeshForType(type);
+  mesh.position.set(block.x, baseY, block.z);
+  scene.add(mesh);
+  collectibles.push({ mesh, type, block, baseY, spawnT: performance.now() });
+}
+setInterval(spawnCollectible, 350);
+
+function removeCollectible(c) {
+  scene.remove(c.mesh);
+  collectibles = collectibles.filter(o => o !== c);
+}
+
+/* =========================================================================
+   PROJECTILES (pistolet / bazooka)
+   ========================================================================= */
+const pistolProjGeo = new THREE.SphereGeometry(0.3, 10, 10);
+const pistolProjMat = new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffaa00, emissiveIntensity: 1.6 });
+const bazookaProjGeo = new THREE.SphereGeometry(0.22, 10, 10);
+const bazookaProjMat = new THREE.MeshStandardMaterial({ color: 0xff6633, emissive: 0xff2200, emissiveIntensity: 1.9 });
+
+let projectiles = []; // {mesh, type, dirX, dirZ, traveled}
+
+// Tir automatique : déclenché à la fin du décompte du boost (voir activateBoost),
+// pas par une touche. Un seul tir par boost ramassé.
+function fireWeapon(type) {
+  const dirX = Math.sin(state.facingAngle);
+  const dirZ = Math.cos(state.facingAngle);
+  const mesh = new THREE.Mesh(
+    type === 'bazooka' ? bazookaProjGeo : pistolProjGeo,
+    type === 'bazooka' ? bazookaProjMat : pistolProjMat
+  );
+  mesh.position.set(player.position.x + dirX * 0.9, PROJECTILE_HEIGHT, player.position.z + dirZ * 0.9);
+  scene.add(mesh);
+  projectiles.push({ mesh, type, dirX, dirZ, traveled: 0 });
+
+  if (multiplayerActive) {
+    sendWS({ t: 'shot', x: mesh.position.x, y: mesh.position.y, z: mesh.position.z, dirX, dirZ, weapon: type });
+  }
+}
+
+function explodeBazooka(x, z) {
+  // Ne casse que la case exacte d'impact (pas les hexagones voisins).
+  const b = findBlockUnderPlayer(x, z);
+  if (b && b.alive && !b.breaking) {
+    if (multiplayerActive && b.gx >= 0) {
+      sendWS({ t: 'bazookaHit', col: b.gx, row: b.gz });
+    } else {
+      if (b.breakTimer) clearTimeout(b.breakTimer);
+      destroyBlock(b);
+    }
+  }
+  flashScreen('#ff5522');
+}
+
+function updateProjectiles(delta) {
+  for (const p of [...projectiles]) {
+    const step = PROJECTILE_SPEED * delta;
+    p.mesh.position.x += p.dirX * step;
+    p.mesh.position.z += p.dirZ * step;
+    p.traveled += step;
+    p.mesh.rotation.x += delta * 18;
+    p.mesh.rotation.y += delta * 14;
+
+    // Collision contre d'autres personnages (aucun en solo pour l'instant —
+    // le système est prêt pour de futurs adversaires/joueurs).
+    let hit = false;
+    for (const other of otherCharacters) {
+      const dx = other.position.x - p.mesh.position.x;
+      const dz = other.position.z - p.mesh.position.z;
+      if (dx * dx + dz * dz < 0.7 * 0.7) {
+        if (p.type === 'pistol') pushOrNetworkPush(other, p.dirX, p.dirZ, PISTOL_PUSH_FORCE);
+        hit = true;
+        break;
+      }
+    }
+
+    const outOfBounds =
+      p.mesh.position.x < ARENA_MIN_X - 2 || p.mesh.position.x > ARENA_MAX_X + 2 ||
+      p.mesh.position.z < ARENA_MIN_Z - 2 || p.mesh.position.z > ARENA_MAX_Z + 2;
+
+    if (hit || p.traveled >= WEAPON_RANGE || outOfBounds) {
+      if (p.type === 'bazooka') explodeBazooka(p.mesh.position.x, p.mesh.position.z);
+      scene.remove(p.mesh);
+      projectiles = projectiles.filter(pp => pp !== p);
+    }
+  }
+}
+
+/* =========================================================================
+   EFFETS CONTINUS : régénérateur de sol (bouclier) et chamboule-tout
+   ========================================================================= */
+let lastShieldTickAt = 0;
+function updateShieldRegen() {
+  if (!hasEffect('shield')) return;
+  const now = performance.now();
+  if (now - lastShieldTickAt < SHIELD_REGEN_TICK_MS) return;
+  lastShieldTickAt = now;
+
+  const { gx, gz } = worldToGrid(player.position.x, player.position.z);
+  const { q, r } = offsetToAxial(gx, gz);
+  const neighbors = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  for (const [dq, dr] of neighbors) {
+    const off = axialToOffset(q + dq, r + dr);
+    const b = blockAt(off.col, off.row);
+    if (b && !b.alive) {
+      if (b.breakTimer) clearTimeout(b.breakTimer);
+      if (b.respawnTimer) clearTimeout(b.respawnTimer);
+      respawnBlock(b);
+    }
+  }
+}
+
+function updateChaosPush() {
+  if (!hasEffect('chaos')) return;
+  for (const other of otherCharacters) {
+    const dx = other.position.x - player.position.x;
+    const dz = other.position.z - player.position.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < CHAOS_PUSH_RADIUS * CHAOS_PUSH_RADIUS && distSq > 0.0001) {
+      const d = Math.sqrt(distSq);
+      pushOrNetworkPush(other, dx / d, dz / d, CHAOS_PUSH_FORCE);
+    }
+  }
+}
+
+/* =========================================================================
+   JOUEUR — personnage procédural, construit directement en Three.js.
+   Aucun fichier externe à charger : le personnage est donc TOUJOURS visible
+   instantanément, sans dépendre du réseau, d'un CDN tiers ou d'un délai de
+   chargement (c'était la cause des bugs de personnage invisible précédents).
+   ========================================================================= */
+const HIP_Y = 0.72;      // hauteur des hanches (pieds au sol = y 0)
+const SHOULDER_Y = 1.38; // hauteur des épaules (haut du torse)
+
+// Fabrique un personnage (torse + tête + 4 membres) : réutilisée pour le
+// joueur ET pour les bots, avec des couleurs différentes pour les distinguer.
+function buildCharacterGroup(bodyColor, skinColor) {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.55, metalness: 0.1 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.6 });
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, SHOULDER_Y - HIP_Y, 0.34), bodyMat);
+  torso.position.y = (HIP_Y + SHOULDER_Y) / 2;
+  torso.castShadow = true;
+  torso.receiveShadow = true;
+  group.add(torso);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 16), skinMat);
+  head.position.y = SHOULDER_Y + 0.35;
+  head.castShadow = true;
+  group.add(head);
+
+  function makeLimb(pivotX, pivotY, length, radius, material) {
+    const pivot = new THREE.Group();
+    pivot.position.set(pivotX, pivotY, 0);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(radius * 2, length, radius * 2), material);
+    mesh.position.y = -length / 2;
+    mesh.castShadow = true;
+    pivot.add(mesh);
+    group.add(pivot);
+    return pivot;
+  }
+
+  const legL = makeLimb(-0.16, HIP_Y, HIP_Y, 0.13, bodyMat);       // touche le sol (y=0) exactement
+  const legR = makeLimb(0.16, HIP_Y, HIP_Y, 0.13, bodyMat);
+  const armL = makeLimb(-0.42, SHOULDER_Y, 0.58, 0.1, skinMat);
+  const armR = makeLimb(0.42, SHOULDER_Y, 0.58, 0.1, skinMat);
+
+  return { group, torso, head, legL, legR, armL, armR, bodyMat, skinMat };
+}
+
+const player = new THREE.Group();
+player.position.set(0, BLOCK_TOP_Y, 0);
+scene.add(player);
+
+const playerParts = buildCharacterGroup(0xff8a00, 0xffd9a0);
+const character = playerParts.group;
+player.add(character);
+const { legL, legR, armL, armR } = playerParts;
+
+/* =========================================================================
+   BOUTIQUE — pièces persistantes (localStorage) + skins de couleur
+   ========================================================================= */
+const SKINS = [
+  { id: 'orange',    name: 'Orange',     body: 0xff8a00, skin: 0xffd9a0, price: 0 },
+  { id: 'bleu',      name: 'Bleu',       body: 0x2d6cdf, skin: 0xd9e8ff, price: 50 },
+  { id: 'vert',      name: 'Vert',       body: 0x2e8b3d, skin: 0xd9ffd9, price: 50 },
+  { id: 'rouge',     name: 'Rouge',      body: 0xd42e2e, skin: 0xffd9d9, price: 75 },
+  { id: 'violet',    name: 'Violet',     body: 0x8a3fce, skin: 0xe8d9ff, price: 75 },
+  { id: 'or',        name: 'Or',         body: 0xffd23f, skin: 0xfff2c2, price: 150 },
+  { id: 'obsidienne',name: 'Obsidienne', body: 0x1a1a22, skin: 0x555566, price: 200 }
+];
+
+function loadJSON(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
+  catch (e) { return fallback; }
+}
+
+let wallet = loadJSON('thefall_wallet', 0);
+let ownedSkins = loadJSON('thefall_owned_skins', ['orange']);
+let equippedSkinId = loadJSON('thefall_equipped_skin', 'orange');
+
+function saveWallet() { localStorage.setItem('thefall_wallet', JSON.stringify(wallet)); }
+function saveOwnedSkins() { localStorage.setItem('thefall_owned_skins', JSON.stringify(ownedSkins)); }
+function saveEquippedSkin() { localStorage.setItem('thefall_equipped_skin', JSON.stringify(equippedSkinId)); }
+
+function addCoinsToWallet(amount) {
+  wallet += amount;
+  saveWallet();
+  updateWalletDisplays();
+}
+
+function updateWalletDisplays() {
+  const val = String(wallet);
+  const walletVal = document.getElementById('walletVal');
+  const shopWalletVal = document.getElementById('shopWalletVal');
+  if (walletVal) walletVal.textContent = val;
+  if (shopWalletVal) shopWalletVal.textContent = val;
+}
+
+function applySkin(id) {
+  const skin = SKINS.find(s => s.id === id) || SKINS[0];
+  playerParts.bodyMat.color.set(skin.body);
+  playerParts.skinMat.color.set(skin.skin);
+}
+applySkin(equippedSkinId);
+
+function renderShop() {
+  const grid = document.getElementById('shopGrid');
+  grid.innerHTML = '';
+  SKINS.forEach(skin => {
+    const owned = ownedSkins.includes(skin.id);
+    const equipped = equippedSkinId === skin.id;
+
+    const card = document.createElement('div');
+    card.className = 'skin-card' + (equipped ? ' equipped' : '') + (!owned ? ' locked' : '');
+
+    const swatch = document.createElement('div');
+    swatch.className = 'skin-swatch';
+    swatch.style.background = '#' + skin.body.toString(16).padStart(6, '0');
+    card.appendChild(swatch);
+
+    const name = document.createElement('div');
+    name.className = 'skin-name';
+    name.textContent = skin.name;
+    card.appendChild(name);
+
+    const price = document.createElement('div');
+    if (equipped) { price.className = 'skin-price equipped'; price.textContent = 'ÉQUIPÉ'; }
+    else if (owned) { price.className = 'skin-price owned'; price.textContent = 'ACHETÉ'; }
+    else { price.className = 'skin-price'; price.textContent = '🪙 ' + skin.price; }
+    card.appendChild(price);
+
+    card.addEventListener('click', () => {
+      if (equipped) return;
+      if (owned) {
+        equippedSkinId = skin.id;
+        saveEquippedSkin();
+        applySkin(skin.id);
+        renderShop();
+      } else if (wallet >= skin.price) {
+        wallet -= skin.price;
+        saveWallet();
+        ownedSkins.push(skin.id);
+        saveOwnedSkins();
+        equippedSkinId = skin.id;
+        saveEquippedSkin();
+        applySkin(skin.id);
+        updateWalletDisplays();
+        renderShop();
+      }
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+document.getElementById('loading').style.display = 'none';
+
+// Anime la marche/course (balancement des membres) et une pose de saut simple —
+// remplace une animation squelette GLTF par une animation procédurale légère.
+// Généralisée pour être réutilisée par le joueur local ET les joueurs distants
+// (multijoueur) : chacun a son propre état d'animation (anim.walkCycle/airPoseT).
+function animateCharacterParts(parts, anim, delta, moving, onGround) {
+  const { legL, legR, armL, armR, group } = parts;
+  if (onGround) {
+    anim.airPoseT = Math.max(0, anim.airPoseT - delta * 6);
+    if (moving) {
+      anim.walkCycle += delta * 9;
+      const swing = Math.sin(anim.walkCycle) * 0.6;
+      legL.rotation.x = swing;
+      legR.rotation.x = -swing;
+      armL.rotation.x = -swing;
+      armR.rotation.x = swing;
+      group.position.y = Math.abs(Math.sin(anim.walkCycle)) * 0.06;
+    } else {
+      anim.walkCycle += delta * 2;
+      legL.rotation.x = 0;
+      legR.rotation.x = 0;
+      armL.rotation.x = Math.sin(anim.walkCycle) * 0.05;
+      armR.rotation.x = -Math.sin(anim.walkCycle) * 0.05;
+      group.position.y = Math.sin(anim.walkCycle) * 0.02;
+    }
+  } else {
+    anim.airPoseT = Math.min(1, anim.airPoseT + delta * 6);
+    legL.rotation.x = -0.5 * anim.airPoseT;
+    legR.rotation.x = -0.5 * anim.airPoseT;
+    armL.rotation.x = -1.4 * anim.airPoseT;
+    armR.rotation.x = -1.4 * anim.airPoseT;
+    group.position.y = 0;
+  }
+}
+
+const playerAnimState = { walkCycle: 0, airPoseT: 0 };
+function animateCharacter(delta, moving, onGround) {
+  animateCharacterParts(playerParts, playerAnimState, delta, moving, onGround);
+}
+
+/* =========================================================================
+   ÉTAT DU JEU / PHYSIQUE
+   ========================================================================= */
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Space') e.preventDefault();
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+const state = {
+  velocityY: 0,
+  onGround: true,
+  jumpsUsed: 0,
+  score: 0,
+  running: false, // le jeu ne démarre qu'au clic sur "JOUER" (écran d'accueil)
+  gameOver: false,
+  facingAngle: 0,
+  spawnGraceUntil: performance.now() + 1200,
+  voidFalling: false, // true dès qu'on tombe réellement dans le vide (plus de contrôle possible)
+  lastSafeX: 0,
+  lastSafeZ: 0,
+  knockbackX: 0,
+  knockbackZ: 0
+};
+
+const scoreVal = document.getElementById('scoreVal');
+const gameoverModal = document.getElementById('gameover');
+const finalScoreEl = document.getElementById('finalScore');
+const activeBoostsEl = document.getElementById('activeBoosts');
+
+function isKeyDown(...codes) { return codes.some(c => keys[c]); }
+
+/* =========================================================================
+   CONTRÔLES TACTILES (mobile) — joystick + bouton de saut, réglables dans
+   PARAMÈTRES (auto-détection par défaut, activable/désactivable à la main).
+   ========================================================================= */
+let touchControlsSetting = loadJSON('thefall_touch_controls', 'auto'); // 'auto' | 'on' | 'off'
+let joystickX = 0, joystickZ = 0;
+
+function isTouchDevice() {
+  return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+function touchControlsEnabled() {
+  return touchControlsSetting === 'on' || (touchControlsSetting === 'auto' && isTouchDevice());
+}
+
+const touchControlsEl = document.getElementById('touchControls');
+function updateTouchControlsVisibility() {
+  touchControlsEl.classList.toggle('visible', state.running && touchControlsEnabled());
+}
+
+const joystickBaseEl = document.getElementById('joystickBase');
+const joystickKnobEl = document.getElementById('joystickKnob');
+const JOYSTICK_RADIUS = 60; // doit correspondre à la moitié de la largeur CSS de .joystick-base
+
+let joystickTouchId = null;
+function joystickSetFromEvent(touch) {
+  const rect = joystickBaseEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  let dx = touch.clientX - cx;
+  let dy = touch.clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > JOYSTICK_RADIUS) { dx = dx / dist * JOYSTICK_RADIUS; dy = dy / dist * JOYSTICK_RADIUS; }
+  joystickKnobEl.style.transform = `translate(${dx - 27}px, ${dy - 27}px)`;
+  joystickX = dx / JOYSTICK_RADIUS;
+  joystickZ = dy / JOYSTICK_RADIUS;
+}
+function joystickReset() {
+  joystickTouchId = null;
+  joystickX = 0; joystickZ = 0;
+  joystickKnobEl.style.transform = 'translate(-50%, -50%)';
+}
+joystickBaseEl.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  joystickTouchId = t.identifier;
+  joystickSetFromEvent(t);
+}, { passive: false });
+joystickBaseEl.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) joystickSetFromEvent(t);
+  }
+}, { passive: false });
+function joystickTouchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) joystickReset();
+  }
+}
+joystickBaseEl.addEventListener('touchend', joystickTouchEnd);
+joystickBaseEl.addEventListener('touchcancel', joystickTouchEnd);
+
+const jumpBtnTouchEl = document.getElementById('jumpBtnTouch');
+jumpBtnTouchEl.addEventListener('touchstart', (e) => { e.preventDefault(); keys['Space'] = true; }, { passive: false });
+jumpBtnTouchEl.addEventListener('touchend', (e) => { e.preventDefault(); keys['Space'] = false; }, { passive: false });
+jumpBtnTouchEl.addEventListener('touchcancel', (e) => { keys['Space'] = false; });
+
+/* =========================================================================
+   BOOSTS ACTIFS (barre qui descend, en haut à droite)
+   ========================================================================= */
+let activeEffects = []; // { key, name, duration, expiresAt, color, onExpire, el }
+
+function hasEffect(key) {
+  return activeEffects.some(e => e.key === key);
+}
+
+function removeActiveEffect(key) {
+  const idx = activeEffects.findIndex(e => e.key === key);
+  if (idx === -1) return;
+  const e = activeEffects[idx];
+  if (e.el) e.el.remove();
+  activeEffects.splice(idx, 1);
+}
+
+function addActiveEffect(key, durationMs, onExpire) {
+  removeActiveEffect(key); // remplace un boost du même type déjà actif
+  const cfg = BOOST_TYPES[key];
+  const now = performance.now();
+
+  const row = document.createElement('div');
+  row.className = 'boost-row';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'boost-name';
+  nameEl.textContent = cfg.name;
+  const track = document.createElement('div');
+  track.className = 'boost-bar-track';
+  const fill = document.createElement('div');
+  fill.className = 'boost-bar-fill';
+  fill.style.background = '#' + cfg.color.toString(16).padStart(6, '0');
+  track.appendChild(fill);
+  row.appendChild(nameEl);
+  row.appendChild(track);
+  activeBoostsEl.appendChild(row);
+
+  activeEffects.push({
+    key, duration: durationMs, expiresAt: now + durationMs,
+    onExpire, el: row, fillEl: fill
+  });
+}
+
+function updateActiveEffects() {
+  const now = performance.now();
+  for (const e of [...activeEffects]) {
+    const remaining = Math.max(0, e.expiresAt - now);
+    e.fillEl.style.width = (remaining / e.duration * 100) + '%';
+    if (remaining <= 0) {
+      removeActiveEffect(e.key);
+      if (e.onExpire) e.onExpire();
+    }
+  }
+}
+
+function clearAllActiveEffects() {
+  [...activeEffects].forEach(e => removeActiveEffect(e.key));
+}
+
+function activateBoost(type) {
+  if (type === 'pistol' || type === 'bazooka') {
+    // Décompte visible, puis tir automatique ; le boost disparaît aussitôt
+    // (il est déjà retiré de la liste des effets actifs avant que onExpire soit
+    // appelé), donc plus aucun décompte après le tir.
+    addActiveEffect(type, BOOST_TYPES[type].duration, () => fireWeapon(type));
+  } else {
+    addActiveEffect(type, BOOST_TYPES[type].duration);
+  }
+}
+
+/* =========================================================================
+   AUTRES PERSONNAGES
+   ========================================================================= */
+const otherCharacters = [];
+function pushCharacter(character, dirX, dirZ, force) {
+  character.knockbackX = (character.knockbackX || 0) + dirX * force;
+  character.knockbackZ = (character.knockbackZ || 0) + dirZ * force;
+}
+
+// Pousser un bot est purement local (on simule sa physique nous-mêmes).
+// Pousser un VRAI joueur distant doit passer par le serveur : sa position est
+// autoritaire sur SA machine, pas la nôtre — on ne peut que lui demander.
+function pushOrNetworkPush(other, dirX, dirZ, force) {
+  if (other.isRemote) {
+    sendWS({ t: 'push', targetId: other.id, dirX, dirZ, force });
+  } else {
+    pushCharacter(other, dirX, dirZ, force);
+  }
+}
+
+/* =========================================================================
+   BOTS — cibles immobiles avec les mêmes propriétés physiques que le joueur :
+   elles font céder le sol sous elles, tombent dans le vide si leur bloc casse,
+   et peuvent être touchées/poussées par les armes (via otherCharacters).
+   ========================================================================= */
+const BOT_COUNT = 10;
+const BOT_BODY_COLOR = 0x9b3fce;
+const BOT_SKIN_COLOR = 0xd9b3ff;
+const BOT_RESPAWN_DELAY_MS = 4000;
+const BOT_KNOCKBACK_FRICTION = 3.5;
+
+let bots = [];
+
+function spawnBotAt(bot) {
+  const aliveBlocks = blocks.filter(b => b.alive && !b.breaking);
+  const block = aliveBlocks.length > 0 ? aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)] : null;
+  bot.group.position.set(block ? block.x : 0, BLOCK_TOP_Y, block ? block.z : 0);
+  bot.velocityY = 0;
+  bot.onGround = true;
+  bot.knockbackX = 0;
+  bot.knockbackZ = 0;
+  bot.voidFalling = false;
+  bot.dead = false;
+  bot.group.visible = true;
+}
+
+function createBot() {
+  const parts = buildCharacterGroup(BOT_BODY_COLOR, BOT_SKIN_COLOR);
+  scene.add(parts.group);
+  const bot = {
+    group: parts.group, position: parts.group.position,
+    velocityY: 0, onGround: true, knockbackX: 0, knockbackZ: 0,
+    voidFalling: false, dead: false, respawnAt: 0
+  };
+  spawnBotAt(bot);
+  return bot;
+}
+
+function buildBots() {
+  bots.forEach(b => {
+    scene.remove(b.group);
+    const idx = otherCharacters.indexOf(b);
+    if (idx >= 0) otherCharacters.splice(idx, 1);
+  });
+  bots = [];
+  for (let i = 0; i < BOT_COUNT; i++) {
+    const bot = createBot();
+    bots.push(bot);
+    otherCharacters.push(bot);
+  }
+}
+buildBots();
+
+// Les bots ne servent qu'en solo (cibles d'entraînement) : en multijoueur,
+// de vrais joueurs prennent leur place dans otherCharacters.
+function disableBots() {
+  bots.forEach(b => {
+    scene.remove(b.group);
+    const idx = otherCharacters.indexOf(b);
+    if (idx >= 0) otherCharacters.splice(idx, 1);
+  });
+  bots = [];
+}
+
+function updateBots(delta) {
+  const now = performance.now();
+  for (const bot of bots) {
+    if (bot.dead) {
+      if (now >= bot.respawnAt) spawnBotAt(bot);
+      continue;
+    }
+
+    // Frottement du recul infligé par les armes (pistolet, chamboule-tout).
+    bot.knockbackX *= Math.max(0, 1 - delta * BOT_KNOCKBACK_FRICTION);
+    bot.knockbackZ *= Math.max(0, 1 - delta * BOT_KNOCKBACK_FRICTION);
+    if (!bot.voidFalling) {
+      bot.group.position.x += bot.knockbackX * delta;
+      bot.group.position.z += bot.knockbackZ * delta;
+    }
+
+    const block = findBlockUnderPlayer(bot.group.position.x, bot.group.position.z);
+    const standingOnAliveBlock = block && block.alive;
+
+    bot.velocityY += GRAVITY * delta;
+    bot.group.position.y += bot.velocityY * delta;
+
+    const groundY = BLOCK_TOP_Y;
+    if (!bot.voidFalling && standingOnAliveBlock && bot.group.position.y <= groundY && bot.velocityY <= 0) {
+      // Contrairement au joueur, les bots ne font PAS céder le sol sous eux :
+      // ils peuvent y rester indéfiniment sans le fissurer (pas d'appel à
+      // startBreaking ici). Ils ne tombent que si le bloc casse pour une
+      // autre raison (le joueur, une bazooka, une régénération de masse...).
+      bot.group.position.y = groundY;
+      bot.velocityY = 0;
+      bot.onGround = true;
+    } else {
+      bot.onGround = false;
+      if (!standingOnAliveBlock && bot.group.position.y < groundY && bot.velocityY < 0) {
+        bot.voidFalling = true;
+      }
+    }
+
+    if (bot.voidFalling && bot.group.position.y < FALL_DEATH_Y) {
+      bot.dead = true;
+      bot.group.visible = false;
+      bot.respawnAt = now + BOT_RESPAWN_DELAY_MS;
+    }
+  }
+}
+
+function updatePlayer(delta) {
+  if (!state.running) return;
+
+  const speedActive = hasEffect('speed');
+  const doubleJumpActive = hasEffect('jump');
+
+  // --- Direction d'entrée (ZQSD + flèches + joystick tactile) ---
+  let ix = 0, iz = 0;
+  if (isKeyDown('KeyW', 'KeyZ', 'ArrowUp')) iz -= 1;
+  if (isKeyDown('KeyS', 'ArrowDown')) iz += 1;
+  if (isKeyDown('KeyA', 'KeyQ', 'ArrowLeft')) ix -= 1;
+  if (isKeyDown('KeyD', 'ArrowRight')) ix += 1;
+  ix += joystickX;
+  iz += joystickZ;
+
+  const moving = ix !== 0 || iz !== 0;
+  state.moving = moving; // exposé pour la diffusion réseau (broadcastLocalPlayerState)
+  const dir = new THREE.Vector2(ix, iz);
+  if (moving) dir.normalize();
+
+  // Une fois le signal de chute dans le vide envoyé, le joueur ne contrôle
+  // plus rien : il ne peut plus se déplacer ni sauter pour "remonter" en
+  // dérivant sous un bloc encore debout — il ne peut que continuer à tomber.
+  if (!state.voidFalling) {
+    const speed = BASE_SPEED * (speedActive ? SPEED_BOOST_MUL : 1);
+    player.position.x += dir.x * speed * delta;
+    player.position.z += dir.y * speed * delta;
+
+    // Recul reçu d'une arme (pistolet/chamboule-tout) tirée par un autre joueur.
+    state.knockbackX *= Math.max(0, 1 - delta * BOT_KNOCKBACK_FRICTION);
+    state.knockbackZ *= Math.max(0, 1 - delta * BOT_KNOCKBACK_FRICTION);
+    player.position.x += state.knockbackX * delta;
+    player.position.z += state.knockbackZ * delta;
+
+    // Mur invisible : impossible de sortir du pourtour de l'arène.
+    player.position.x = Math.min(ARENA_MAX_X, Math.max(ARENA_MIN_X, player.position.x));
+    player.position.z = Math.min(ARENA_MAX_Z, Math.max(ARENA_MIN_Z, player.position.z));
+
+    if (moving) {
+      state.facingAngle = Math.atan2(dir.x, dir.y);
+    }
+  }
+  const targetQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), state.facingAngle);
+  player.quaternion.slerp(targetQuat, Math.min(1, delta * 10));
+
+  // --- Saut ---
+  if (!state.voidFalling && isKeyDown('Space')) {
+    if (state.onGround) {
+      state.velocityY = JUMP_FORCE;
+      state.onGround = false;
+      state.jumpsUsed = 1;
+      keys['Space'] = false;
+    } else if (doubleJumpActive && state.jumpsUsed < 2) {
+      state.velocityY = JUMP_FORCE * 0.9;
+      state.jumpsUsed = 2;
+      keys['Space'] = false;
+    }
+  }
+
+  // --- Sol sous le joueur (grille hexagonale ou fragment de bordure) ---
+  const block = findBlockUnderPlayer(player.position.x, player.position.z);
+  const standingOnAliveBlock = block && block.alive;
+
+  // gravité
+  state.velocityY += GRAVITY * delta;
+  player.position.y += state.velocityY * delta;
+
+  const groundY = BLOCK_TOP_Y; // pieds du joueur exactement sur la surface du bloc (le modèle est déjà aligné feet=0 dans le groupe)
+  if (!state.voidFalling && standingOnAliveBlock && player.position.y <= groundY && state.velocityY <= 0) {
+    player.position.y = groundY;
+    state.velocityY = 0;
+    state.onGround = true;
+    state.jumpsUsed = 0;
+    state.lastSafeX = player.position.x;
+    state.lastSafeZ = player.position.z;
+    if (performance.now() > state.spawnGraceUntil) {
+      // En multijoueur, la casse d'un hexagone de la grille (pas un fragment
+      // de bordure) est décidée par le serveur, pour que tous les joueurs la
+      // voient au même moment. On ne (re-)demande que si elle n'a pas déjà
+      // été enclenchée (évite de spammer le réseau tant qu'on reste dessus).
+      if (multiplayerActive && block.gx >= 0) {
+        if (!block.breaking) sendWS({ t: 'requestBreak', col: block.gx, row: block.gz });
+      } else {
+        startBreaking(block);
+      }
+    }
+  } else {
+    state.onGround = false;
+    // Signal de chute : dès que le joueur passe sous le niveau du sol sans
+    // aucun bloc sous lui, la chute dans le vide est définitive (contrairement
+    // à un saut au-dessus d'un trou, qui reste au-dessus de ce niveau tant
+    // qu'il n'est pas retombé sur un bloc).
+    if (!standingOnAliveBlock && player.position.y < groundY && state.velocityY < 0) {
+      if (hasEffect('extraLife')) {
+        // La 2e vie consomme le boost et fait réapparaître le joueur à un
+        // endroit aléatoire de la carte (pas forcément son dernier point sûr).
+        removeActiveEffect('extraLife');
+        const aliveBlocks = blocks.filter(b => b.alive && !b.breaking);
+        const reviveBlock = aliveBlocks.length > 0
+          ? aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)]
+          : null;
+        if (reviveBlock) {
+          player.position.set(reviveBlock.x, groundY, reviveBlock.z);
+        } else {
+          player.position.set(state.lastSafeX, groundY, state.lastSafeZ);
+        }
+        state.velocityY = 0;
+        state.onGround = true;
+        state.jumpsUsed = 0;
+        state.spawnGraceUntil = performance.now() + 1000;
+        flashScreen('#ffd23f');
+      } else {
+        state.voidFalling = true;
+      }
+    }
+  }
+
+  // --- Animation ---
+  animateCharacter(delta, moving, state.onGround);
+
+  // --- Score : augmente tant qu'on est sur l'arène (pas en train de tomber dans le vide) ---
+  if (player.position.y > FALL_DEATH_Y + 4) {
+    state.score += SCORE_RATE * delta;
+    scoreVal.textContent = Math.floor(state.score);
+  }
+
+  // --- Collision collectibles ---
+  for (const c of [...collectibles]) {
+    const dx = player.position.x - c.mesh.position.x;
+    const dz = player.position.z - c.mesh.position.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < 1.1 * 1.1 && Math.abs(player.position.y - c.mesh.position.y) < 2.2) {
+      if (c.type === 'coin') {
+        state.score += COIN_SCORE;
+        scoreVal.textContent = Math.floor(state.score);
+        addCoinsToWallet(1); // monnaie persistante de la boutique
+      } else {
+        activateBoost(c.type);
+      }
+      // Applique l'effet tout de suite (réactif), et prévient le serveur pour
+      // que les autres joueurs voient l'objet disparaître (évite le double
+      // ramassage en multijoueur).
+      if (multiplayerActive && c.netId != null) sendWS({ t: 'pickup', id: c.netId });
+      removeCollectible(c);
+    }
+  }
+
+  // --- Game Over ---
+  if (player.position.y < FALL_DEATH_Y) {
+    triggerGameOver();
+  }
+}
+
+function updateFallingBlocks(delta) {
+  for (const block of fallingBlocks) {
+    block.fallVelocity += GRAVITY * 1.4 * delta;
+    block.mesh.position.y += block.fallVelocity * delta;
+    block.mesh.rotation.x += block.fallRotSpeed * delta;
+    block.mesh.rotation.z += block.fallRotSpeed * 0.6 * delta;
+    if (block.mesh.position.y < -22) {
+      block.mesh.visible = false;
+    }
+  }
+}
+
+function updateRespawningPopIn(delta) {
+  blocks.forEach(block => {
+    if (block.alive && block.mesh.scale.x < 1) {
+      const s = Math.min(1, block.mesh.scale.x + delta * 3.2);
+      block.mesh.scale.set(s, s, s);
+    }
+  });
+}
+
+function updateCollectibles(delta) {
+  const t = performance.now() * 0.001;
+  collectibles.forEach(c => {
+    c.mesh.rotation.y += delta * 2.2;
+    c.mesh.position.y = c.baseY + Math.sin(t * 2 + c.spawnT) * 0.12;
+  });
+}
+
+/* =========================================================================
+   CAMÉRA 3ᵉ PERSONNE
+   ========================================================================= */
+function updateCamera(delta) {
+  // Translation pure vers la position du joueur : aucune rotation autour de lui.
+  const desired = player.position.clone().add(CAM_OFFSET);
+  camCurrentPos.lerp(desired, Math.min(1, delta * 4.5));
+  camera.position.copy(camCurrentPos);
+  camTarget.lerp(player.position.clone().add(new THREE.Vector3(0, 1.2, 0)), Math.min(1, delta * 6));
+  camera.lookAt(camTarget);
+}
+
+/* =========================================================================
+   GAME OVER / RESET
+   ========================================================================= */
+function triggerGameOver() {
+  if (state.gameOver) return;
+  state.gameOver = true;
+  state.running = false;
+  finalScoreEl.textContent = Math.floor(state.score);
+  gameoverModal.style.display = 'block';
+}
+
+function resetGame() {
+  joystickReset();
+  keys['Space'] = false;
+
+  if (!multiplayerActive) {
+    // Nettoyage timers blocs
+    blocks.forEach(b => {
+      if (b.breakTimer) clearTimeout(b.breakTimer);
+      if (b.respawnTimer) clearTimeout(b.respawnTimer);
+    });
+    buildArena();
+
+    // Nettoyage collectibles
+    [...collectibles].forEach(removeCollectible);
+
+    // Repositionne les bots sur de nouvelles cases
+    bots.forEach(spawnBotAt);
+  }
+  // En multijoueur, l'arène et les objets sont partagés (autorité serveur) :
+  // on ne les réinitialise PAS ici, sous peine de désynchroniser les autres
+  // joueurs à chaque "Rejouer" — seul l'état du joueur local est remis à zéro.
+
+  // Nettoyage projectiles et boosts actifs (toujours locaux)
+  [...projectiles].forEach(p => scene.remove(p.mesh));
+  projectiles = [];
+  clearAllActiveEffects();
+
+  // Reset joueur
+  player.position.set(0, BLOCK_TOP_Y, 0);
+  player.quaternion.identity();
+  state.velocityY = 0;
+  state.onGround = true;
+  state.jumpsUsed = 0;
+  state.score = 0;
+  state.facingAngle = 0;
+  state.gameOver = false;
+  state.running = true;
+  state.spawnGraceUntil = performance.now() + 1200;
+  state.voidFalling = false;
+  state.lastSafeX = 0;
+  state.lastSafeZ = 0;
+  state.knockbackX = 0;
+  state.knockbackZ = 0;
+
+  playerAnimState.walkCycle = 0;
+  playerAnimState.airPoseT = 0;
+  legL.rotation.x = 0;
+  legR.rotation.x = 0;
+  armL.rotation.x = 0;
+  armR.rotation.x = 0;
+  character.position.y = 0;
+
+  scoreVal.textContent = '0';
+  gameoverModal.style.display = 'none';
+}
+document.getElementById('retryBtn').addEventListener('click', resetGame);
+
+/* =========================================================================
+   MULTIJOUEUR (WebSocket, optionnel) — voir server.js.
+   Le jeu reste entièrement jouable en solo si aucun serveur n'est joignable :
+   la connexion est tentée au lancement d'une partie, avec repli automatique.
+   ========================================================================= */
+let ws = null;
+let multiplayerActive = false;
+let myPlayerId = null;
+const remotePlayers = new Map(); // id -> { id, isRemote:true, group, position, parts, animState, targetX/Y/Z, targetFacingAngle, moving, onGround, knockbackX/Z }
+const NET_SEND_INTERVAL_MS = 80; // ~12 messages/s
+let lastNetSendAt = 0;
+
+function sendWS(msg) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+}
+
+// Vide par défaut : la connexion multijoueur est entièrement optionnelle et
+// n'est tentée QUE si une adresse a été renseignée dans PARAMÈTRES — sinon
+// aucun délai n'est ajouté au lancement d'une partie solo.
+function getMpServerUrl() {
+  return loadJSON('thefall_mp_server', '') || '';
+}
+
+function setMpStatus(text) {
+  const el = document.getElementById('mpStatus');
+  if (el) el.textContent = text;
+}
+
+function updateMpBadge() {
+  const badge = document.getElementById('mpBadge');
+  if (!state.running || !multiplayerActive) { badge.classList.remove('visible'); return; }
+  badge.textContent = `🟢 Multijoueur — ${remotePlayers.size + 1} joueur${remotePlayers.size ? 's' : ''}`;
+  badge.classList.add('visible');
+}
+
+// Tente de se connecter avant de lancer une partie ; se rabat sur le mode
+// solo (bots) si aucun serveur ne répond sous 1,5s ou si l'adresse est vide.
+function connectMultiplayer() {
+  return new Promise((resolve) => {
+    const url = getMpServerUrl();
+    if (!url) { resolve(false); return; }
+
+    let settled = false;
+    let socket;
+    try { socket = new WebSocket(url); }
+    catch (e) { resolve(false); return; }
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.close();
+      resolve(false);
+    }, 1500);
+
+    socket.addEventListener('open', () => {
+      ws = socket;
+      wireWebSocketHandlers();
+    });
+
+    socket.addEventListener('message', (ev) => {
+      if (settled) return;
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.t === 'welcome') {
+        settled = true;
+        clearTimeout(timeout);
+        multiplayerActive = true;
+        myPlayerId = msg.id;
+        applyWelcomeState(msg);
+        resolve(true);
+      }
+    });
+
+    socket.addEventListener('close', () => {
+      if (!settled) { settled = true; clearTimeout(timeout); resolve(false); }
+      else onMultiplayerDisconnected();
+    });
+    socket.addEventListener('error', () => {
+      if (!settled) { settled = true; clearTimeout(timeout); resolve(false); }
+    });
+  });
+}
+
+function wireWebSocketHandlers() {
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    handleWSMessage(msg);
+  });
+  ws.addEventListener('close', onMultiplayerDisconnected);
+}
+
+function onMultiplayerDisconnected() {
+  if (!multiplayerActive) return;
+  multiplayerActive = false;
+  ws = null;
+  setMpStatus('⚪ Déconnecté (repli en mode solo)');
+  for (const id of [...remotePlayers.keys()]) removeRemotePlayer(id);
+  buildBots(); // reviennent en mode solo
+  updateMpBadge();
+}
+
+function applyWelcomeState(msg) {
+  // Autres joueurs déjà connectés
+  msg.players.forEach(p => createRemotePlayer(p.id, p));
+  // Blocs déjà cassés/en cours de cassure ailleurs sur le réseau
+  msg.blocks.forEach(bd => {
+    const block = blockAt(bd.col, bd.row);
+    if (!block) return;
+    if (bd.breaking) applyBreakingVisual(block);
+    else if (!bd.alive) destroyBlock(block, { skipRespawnTimer: true });
+  });
+  // Objets déjà présents sur la carte
+  msg.collectibles.forEach(c => spawnNetworkCollectible(c.id, c.col, c.row, c.type));
+  setMpStatus(`🟢 Connecté (${msg.players.length + 1} joueur${msg.players.length ? 's' : ''})`);
+}
+
+function spawnNetworkCollectible(netId, col, row, type) {
+  const block = blockAt(col, row);
+  if (!block) return;
+  if (collectibles.some(c => c.netId === netId)) return;
+  const { mesh, baseY } = createCollectibleMeshForType(type);
+  mesh.position.set(block.x, baseY, block.z);
+  scene.add(mesh);
+  collectibles.push({ mesh, type, block, baseY, spawnT: performance.now(), netId });
+}
+function removeNetworkCollectible(netId) {
+  const c = collectibles.find(c => c.netId === netId);
+  if (c) removeCollectible(c);
+}
+
+function createRemotePlayer(id, data) {
+  if (remotePlayers.has(id)) return remotePlayers.get(id);
+  const parts = buildCharacterGroup(data.bodyColor || 0x3fc9ff, data.skinColor || 0xd9e8ff);
+  scene.add(parts.group);
+  const rp = {
+    id, isRemote: true, parts, group: parts.group,
+    targetX: data.x || 0, targetY: data.y || 0, targetZ: data.z || 0,
+    targetFacingAngle: data.facingAngle || 0,
+    moving: !!data.moving, onGround: data.onGround !== false,
+    animState: { walkCycle: 0, airPoseT: 0 },
+    knockbackX: 0, knockbackZ: 0
+  };
+  rp.group.position.set(rp.targetX, rp.targetY, rp.targetZ);
+  rp.position = rp.group.position; // alias, cohérent avec bots/otherCharacters
+  remotePlayers.set(id, rp);
+  otherCharacters.push(rp);
+  updateMpBadge();
+  return rp;
+}
+
+function removeRemotePlayer(id) {
+  const rp = remotePlayers.get(id);
+  if (!rp) return;
+  scene.remove(rp.group);
+  remotePlayers.delete(id);
+  const idx = otherCharacters.indexOf(rp);
+  if (idx >= 0) otherCharacters.splice(idx, 1);
+  updateMpBadge();
+}
+
+function updateRemotePlayers(delta) {
+  for (const rp of remotePlayers.values()) {
+    const t = Math.min(1, delta * 10);
+    rp.group.position.x += (rp.targetX - rp.group.position.x) * t;
+    rp.group.position.y += (rp.targetY - rp.group.position.y) * t;
+    rp.group.position.z += (rp.targetZ - rp.group.position.z) * t;
+
+    rp.facingAngleShown = (rp.facingAngleShown || 0) + (rp.targetFacingAngle - (rp.facingAngleShown || 0)) * t;
+    rp.group.rotation.y = rp.facingAngleShown;
+
+    animateCharacterParts(rp.parts, rp.animState, delta, rp.moving, rp.onGround);
+  }
+}
+
+// Projectiles des AUTRES joueurs : purement visuels (chacun garde l'autorité
+// sur les collisions de son propre tir), juste pour les voir voler.
+let visualProjectiles = [];
+function spawnVisualProjectile(data) {
+  const mesh = new THREE.Mesh(
+    data.weapon === 'bazooka' ? bazookaProjGeo : pistolProjGeo,
+    data.weapon === 'bazooka' ? bazookaProjMat : pistolProjMat
+  );
+  mesh.position.set(data.x, data.y, data.z);
+  scene.add(mesh);
+  visualProjectiles.push({ mesh, dirX: data.dirX, dirZ: data.dirZ, traveled: 0 });
+}
+function updateVisualProjectiles(delta) {
+  for (const p of [...visualProjectiles]) {
+    const step = PROJECTILE_SPEED * delta;
+    p.mesh.position.x += p.dirX * step;
+    p.mesh.position.z += p.dirZ * step;
+    p.traveled += step;
+    p.mesh.rotation.x += delta * 18;
+    p.mesh.rotation.y += delta * 14;
+    if (p.traveled >= WEAPON_RANGE) {
+      scene.remove(p.mesh);
+      visualProjectiles = visualProjectiles.filter(pp => pp !== p);
+    }
+  }
+}
+
+// Diffuse la position/l'état du joueur local aux autres, à un rythme limité
+// (pas besoin de le faire à 60 im/s, le réseau et l'interpolation absorbent
+// le reste — voir updateRemotePlayers).
+function broadcastLocalPlayerState() {
+  if (!multiplayerActive || !state.running) return;
+  const now = performance.now();
+  if (now - lastNetSendAt < NET_SEND_INTERVAL_MS) return;
+  lastNetSendAt = now;
+  sendWS({
+    t: 'update',
+    x: player.position.x, y: player.position.y, z: player.position.z,
+    facingAngle: state.facingAngle,
+    moving: !!state.moving, onGround: state.onGround,
+    bodyColor: playerParts.bodyMat.color.getHex(),
+    skinColor: playerParts.skinMat.color.getHex()
+  });
+}
+
+function handleWSMessage(msg) {
+  switch (msg.t) {
+    case 'playerJoin':
+      createRemotePlayer(msg.id, {});
+      setMpStatus(`🟢 Connecté (${remotePlayers.size + 1} joueurs)`);
+      break;
+
+    case 'update': {
+      const rp = remotePlayers.get(msg.id) || createRemotePlayer(msg.id, msg);
+      rp.targetX = msg.x; rp.targetY = msg.y; rp.targetZ = msg.z;
+      rp.targetFacingAngle = msg.facingAngle;
+      rp.moving = !!msg.moving; rp.onGround = !!msg.onGround;
+      if (msg.bodyColor != null) rp.parts.bodyMat.color.set(msg.bodyColor);
+      if (msg.skinColor != null) rp.parts.skinMat.color.set(msg.skinColor);
+      break;
+    }
+
+    case 'playerLeave':
+      removeRemotePlayer(msg.id);
+      setMpStatus(`🟢 Connecté (${remotePlayers.size + 1} joueur${remotePlayers.size ? 's' : ''})`);
+      break;
+
+    case 'blockBreak': {
+      const b = blockAt(msg.col, msg.row);
+      if (b) applyBreakingVisual(b);
+      break;
+    }
+    case 'blockDestroy': {
+      const b = blockAt(msg.col, msg.row);
+      if (b && b.alive) {
+        if (b.breakTimer) clearTimeout(b.breakTimer);
+        destroyBlock(b, { skipRespawnTimer: true });
+      }
+      break;
+    }
+    case 'blockRespawn': {
+      const b = blockAt(msg.col, msg.row);
+      if (b) respawnBlock(b);
+      break;
+    }
+    case 'massRegen':
+      regenerateAllInstant();
+      break;
+
+    case 'collectibleSpawn':
+      spawnNetworkCollectible(msg.id, msg.col, msg.row, msg.type);
+      break;
+    case 'collectibleRemove':
+      removeNetworkCollectible(msg.id);
+      break;
+
+    case 'push':
+      state.knockbackX += msg.dirX * msg.force;
+      state.knockbackZ += msg.dirZ * msg.force;
+      break;
+
+    case 'shot':
+      spawnVisualProjectile(msg);
+      break;
+
+    default:
+      break;
+  }
+}
+
+/* =========================================================================
+   NAVIGATION : accueil / boutique / partie
+   ========================================================================= */
+const homeScreenEl = document.getElementById('homeScreen');
+const shopScreenEl = document.getElementById('shopScreen');
+const settingsScreenEl = document.getElementById('settingsScreen');
+
+function showHome() {
+  shopScreenEl.style.display = 'none';
+  settingsScreenEl.style.display = 'none';
+  gameoverModal.style.display = 'none';
+  updateWalletDisplays();
+  homeScreenEl.style.display = 'flex';
+  updateTouchControlsVisibility();
+}
+
+function showShop() {
+  homeScreenEl.style.display = 'none';
+  renderShop();
+  updateWalletDisplays();
+  shopScreenEl.style.display = 'flex';
+}
+
+function renderSettings() {
+  document.querySelectorAll('#touchControlsOptions .option-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === touchControlsSetting);
+  });
+  document.getElementById('mpServerInput').value = getMpServerUrl();
+  setMpStatus(multiplayerActive
+    ? `🟢 Connecté (${remotePlayers.size + 1} joueur${remotePlayers.size ? 's' : ''})`
+    : '⚪ Non connecté (mode solo)');
+}
+function showSettings() {
+  homeScreenEl.style.display = 'none';
+  renderSettings();
+  settingsScreenEl.style.display = 'flex';
+}
+
+const mpServerInputEl = document.getElementById('mpServerInput');
+mpServerInputEl.addEventListener('change', () => {
+  const url = mpServerInputEl.value.trim();
+  localStorage.setItem('thefall_mp_server', JSON.stringify(url));
+});
+
+document.getElementById('playBtn').addEventListener('click', async () => {
+  homeScreenEl.style.display = 'none';
+  if (!multiplayerActive) {
+    const connected = await connectMultiplayer(); // no-op immédiat si aucune adresse n'est configurée
+    if (connected) disableBots();
+  }
+  resetGame();
+  updateTouchControlsVisibility();
+});
+document.getElementById('shopBtn').addEventListener('click', showShop);
+document.getElementById('shopBackBtn').addEventListener('click', showHome);
+document.getElementById('settingsBtn').addEventListener('click', showSettings);
+document.getElementById('settingsBackBtn').addEventListener('click', showHome);
+document.querySelectorAll('#touchControlsOptions .option-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    touchControlsSetting = btn.dataset.value;
+    localStorage.setItem('thefall_touch_controls', JSON.stringify(touchControlsSetting));
+    renderSettings();
+    updateTouchControlsVisibility();
+  });
+});
+document.getElementById('gameoverMenuBtn').addEventListener('click', () => {
+  resetGame();       // remet une arène et un joueur propres en arrière-plan
+  state.running = false; // mais on n'est pas encore reparti tant qu'on n'a pas cliqué JOUER
+  showHome();
+});
+
+updateWalletDisplays();
+
+/* =========================================================================
+   BOUCLE PRINCIPALE
+   ========================================================================= */
+const clock = new THREE.Clock();
+
+renderer.setAnimationLoop(() => {
+  const delta = Math.min(clock.getDelta(), 0.05);
+
+  updateBots(delta);
+  updatePlayer(delta);
+  updateRemotePlayers(delta);
+  updateFallingBlocks(delta);
+  updateRespawningPopIn(delta);
+  updateCollectibles(delta);
+  updateProjectiles(delta);
+  updateVisualProjectiles(delta);
+  updateShieldRegen();
+  updateChaosPush();
+  updateActiveEffects();
+  updateCamera(delta);
+  updateTouchControlsVisibility();
+  updateMpBadge();
+  broadcastLocalPlayerState();
+
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

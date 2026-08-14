@@ -1,0 +1,13 @@
+{
+  "name": "thefall-io-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serveur WebSocket local (LAN) pour le multijoueur de TheFall.io 3D Clone",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
