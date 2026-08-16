@@ -73,6 +73,13 @@
     transition: opacity .12s ease; z-index: 5;
   }
 
+  #countdownOverlay {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 12; font-size: 120px; font-weight: 900; color: #fff;
+    text-shadow: 0 0 40px rgba(0,255,136,.8), 0 4px 12px rgba(0,0,0,.6);
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+
   /* --- Écrans plein cadre : accueil / boutique --- */
   .screen {
     position: absolute; inset: 0; z-index: 15;
@@ -203,6 +210,8 @@
 <div id="crosshair-hint">ZQSD / Flèches : se déplacer &nbsp;·&nbsp; ESPACE : sauter</div>
 
 <div id="flash"></div>
+
+<div id="countdownOverlay"></div>
 
 <div id="gameover" class="modal">
   <h2>GAME OVER</h2>
@@ -1408,6 +1417,10 @@ jumpBtnTouchEl.addEventListener('touchcancel', (e) => { keys['Space'] = false; }
    BOOSTS ACTIFS (barre qui descend, en haut à droite)
    ========================================================================= */
 let activeEffects = []; // { key, name, duration, expiresAt, color, onExpire, el }
+// Passe à true en "finale" (5 joueurs restants) : pas encore câblé côté
+// serveur (nécessite un suivi des joueurs éliminés), donc toujours false pour
+// l'instant — le cap de boosts ci-dessous est déjà prêt pour ce mode.
+let matchFinale = false;
 
 function hasEffect(key) {
   return activeEffects.some(e => e.key === key);
@@ -1507,10 +1520,8 @@ const BOT_KNOCKBACK_FRICTION = 3.5;
 
 let bots = [];
 
-function spawnBotAt(bot) {
-  const aliveBlocks = blocks.filter(b => b.alive && !b.breaking);
-  const block = aliveBlocks.length > 0 ? aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)] : null;
-  bot.group.position.set(block ? block.x : 0, BLOCK_TOP_Y, block ? block.z : 0);
+function placeBot(bot, x, z) {
+  bot.group.position.set(x, BLOCK_TOP_Y, z);
   bot.velocityY = 0;
   bot.onGround = true;
   bot.knockbackX = 0;
@@ -1518,6 +1529,14 @@ function spawnBotAt(bot) {
   bot.voidFalling = false;
   bot.dead = false;
   bot.group.visible = true;
+}
+
+// Réapparition en cours de partie (après une chute) : case aléatoire, contrairement
+// au placement en cercle espacé utilisé au tout début d'une manche (voir resetGame).
+function spawnBotAt(bot) {
+  const aliveBlocks = blocks.filter(b => b.alive && !b.breaking);
+  const block = aliveBlocks.length > 0 ? aliveBlocks[Math.floor(Math.random() * aliveBlocks.length)] : null;
+  placeBot(bot, block ? block.x : 0, block ? block.z : 0);
 }
 
 function createBot() {
@@ -1748,6 +1767,9 @@ function updatePlayer(delta) {
         scoreVal.textContent = Math.floor(state.score);
         addCoinsToWallet(1); // monnaie persistante de la boutique
       } else {
+        // Inventaire limité (2 boosts actifs max, 1 seul en finale, cf.
+        // matchFinale) : au-delà, l'objet reste au sol pour un autre joueur.
+        if (activeEffects.length >= (matchFinale ? 1 : 2)) continue;
         activateBoost(c.type);
       }
       // Applique l'effet tout de suite (réactif), et prévient le serveur pour
@@ -1816,10 +1838,25 @@ function triggerGameOver() {
   gameoverModal.style.display = 'block';
 }
 
+// Points de départ espacés en cercle près du bord de l'arène (un par joueur,
+// "chacun sur un côté différent") — utilisé uniquement en solo pour l'instant :
+// en multijoueur, tant que le serveur n'a pas de notion de "manche"/lobby, tout
+// le monde continue d'apparaître au centre comme avant.
+function computeSpawnRing(count) {
+  const radius = Math.min(ARENA_MAX_X, -ARENA_MIN_X, ARENA_MAX_Z, -ARENA_MIN_Z) * 0.82;
+  const pts = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    pts.push({ x: Math.cos(a) * radius, z: Math.sin(a) * radius });
+  }
+  return pts;
+}
+
 function resetGame() {
   joystickReset();
   keys['Space'] = false;
 
+  let playerSpawn = { x: 0, z: 0 };
   if (!multiplayerActive) {
     // Nettoyage timers blocs
     blocks.forEach(b => {
@@ -1831,8 +1868,10 @@ function resetGame() {
     // Nettoyage collectibles
     [...collectibles].forEach(removeCollectible);
 
-    // Repositionne les bots sur de nouvelles cases
-    bots.forEach(spawnBotAt);
+    // Répartit joueur + bots sur le pourtour, tous espacés.
+    const spawnPts = computeSpawnRing(1 + bots.length);
+    playerSpawn = spawnPts[0];
+    bots.forEach((b, i) => placeBot(b, spawnPts[i + 1].x, spawnPts[i + 1].z));
   }
   // En multijoueur, l'arène et les objets sont partagés (autorité serveur) :
   // on ne les réinitialise PAS ici, sous peine de désynchroniser les autres
@@ -1844,7 +1883,7 @@ function resetGame() {
   clearAllActiveEffects();
 
   // Reset joueur
-  player.position.set(0, BLOCK_TOP_Y, 0);
+  player.position.set(playerSpawn.x, BLOCK_TOP_Y, playerSpawn.z);
   player.quaternion.identity();
   state.velocityY = 0;
   state.onGround = true;
@@ -1871,7 +1910,69 @@ function resetGame() {
   scoreVal.textContent = '0';
   gameoverModal.style.display = 'none';
 }
-document.getElementById('retryBtn').addEventListener('click', resetGame);
+
+/* =========================================================================
+   DÉROULEMENT D'UNE MANCHE : écran d'accueil (chute en boucle en fond) →
+   chute d'entrée sur la carte → décompte 3s (immobile) → partie en cours.
+   uiPhase: 'home' | 'dropping' | 'countdown' | 'playing'
+   ========================================================================= */
+let uiPhase = 'home';
+let homeIdleT = 0;
+let dropLandedY = BLOCK_TOP_Y;
+let countdownEndAt = 0;
+const DROP_FALL_SPEED = 22;
+const COUNTDOWN_MS = 3000;
+const countdownOverlayEl = document.getElementById('countdownOverlay');
+
+// Boucle d'ambiance de l'écran d'accueil : le personnage tombe sans fin,
+// visible (flouté) derrière le panneau de menu.
+function updateHomeIdleFall(delta) {
+  homeIdleT += delta;
+  const y = BLOCK_TOP_Y + 34 - ((homeIdleT * 7) % 60);
+  player.position.set(Math.sin(homeIdleT * 0.35) * 6, y, Math.cos(homeIdleT * 0.35) * 6);
+  character.rotation.x += delta * 1.4;
+  character.rotation.z += delta * 0.9;
+}
+
+// Lance une manche : reconstruit tout (resetGame), puis rejoue l'arrivée sous
+// forme d'une chute depuis le ciel jusqu'au point de spawn, suivie d'un
+// décompte à 3 immobile avant d'activer les contrôles.
+function startMatchWithDropIn() {
+  resetGame();
+  state.running = false; // resetGame() l'active ; on le fige le temps de la chute + du décompte
+  dropLandedY = player.position.y;
+  player.position.y += 28;
+  character.rotation.set(0, 0, 0);
+  uiPhase = 'dropping';
+}
+
+function updateMatchTransition(delta) {
+  if (uiPhase === 'dropping') {
+    player.position.y -= DROP_FALL_SPEED * delta;
+    character.rotation.x += delta * 5;
+    if (player.position.y <= dropLandedY) {
+      player.position.y = dropLandedY;
+      character.rotation.set(0, 0, 0);
+      uiPhase = 'countdown';
+      countdownEndAt = performance.now() + COUNTDOWN_MS;
+      countdownOverlayEl.style.display = 'flex';
+    }
+  } else if (uiPhase === 'countdown') {
+    const remaining = countdownEndAt - performance.now();
+    countdownOverlayEl.textContent = remaining > 700 ? String(Math.ceil(remaining / 1000)) : 'GO !';
+    if (remaining <= 0) {
+      countdownOverlayEl.style.display = 'none';
+      uiPhase = 'playing';
+      state.running = true;
+      // Délai de grâce recalculé ici (pas au moment du resetGame() initial,
+      // "mangé" par la chute + le décompte) : le sol sous les pieds ne
+      // commence à céder qu'une fois le "GO !" réellement passé.
+      state.spawnGraceUntil = performance.now() + 1200;
+    }
+  }
+}
+
+document.getElementById('retryBtn').addEventListener('click', startMatchWithDropIn);
 
 /* =========================================================================
    MULTIJOUEUR (WebSocket, optionnel) — voir server.js.
@@ -2238,7 +2339,7 @@ playOnlineBtnEl.addEventListener('click', async () => {
     onlineStatusHintEl.style.display = 'none';
     homeScreenEl.style.display = 'none';
     disableBots();
-    resetGame();
+    startMatchWithDropIn();
     updateTouchControlsVisibility();
   } else {
     onlineStatusHintEl.textContent = '🔴 Serveur indisponible — réessaie dans un instant, ou joue avec des bots.';
@@ -2250,7 +2351,7 @@ playBotsBtnEl.addEventListener('click', () => {
   homeScreenEl.style.display = 'none';
   if (multiplayerActive) leaveMultiplayer();
   else if (bots.length === 0) buildBots();
-  resetGame();
+  startMatchWithDropIn();
   updateTouchControlsVisibility();
 });
 document.getElementById('shopBtn').addEventListener('click', showShop);
@@ -2266,8 +2367,15 @@ document.querySelectorAll('#touchControlsOptions .option-btn').forEach(btn => {
   });
 });
 document.getElementById('gameoverMenuBtn').addEventListener('click', () => {
-  resetGame();       // remet une arène et un joueur propres en arrière-plan
-  state.running = false; // mais on n'est pas encore reparti tant qu'on n'a pas cliqué JOUER
+  // Pas de resetGame() ici : on repasse simplement la main à la boucle de
+  // chute d'ambiance de l'accueil (updateHomeIdleFall reprend la position dès
+  // la prochaine frame) — l'arène ne sera reconstruite qu'au prochain JOUER.
+  [...projectiles].forEach(p => scene.remove(p.mesh));
+  projectiles = [];
+  clearAllActiveEffects();
+  character.rotation.set(0, 0, 0);
+  gameoverModal.style.display = 'none';
+  uiPhase = 'home';
   showHome();
 });
 
@@ -2282,6 +2390,8 @@ renderer.setAnimationLoop(() => {
   const delta = Math.min(clock.getDelta(), 0.05);
 
   updateClouds(delta);
+  if (uiPhase === 'home') updateHomeIdleFall(delta);
+  else if (uiPhase === 'dropping' || uiPhase === 'countdown') updateMatchTransition(delta);
   updateBots(delta);
   updatePlayer(delta);
   updateRemotePlayers(delta);
