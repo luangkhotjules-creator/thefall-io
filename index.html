@@ -1757,11 +1757,15 @@ function sendWS(msg) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 
-// Vide par défaut : la connexion multijoueur est entièrement optionnelle et
-// n'est tentée QUE si une adresse a été renseignée dans PARAMÈTRES — sinon
-// aucun délai n'est ajouté au lancement d'une partie solo.
+// Adresse par défaut : le serveur multijoueur public hébergé sur Render.
+// Modifiable dans PARAMÈTRES (ex. pour un serveur LAN). La connexion reste
+// optionnelle : si le serveur ne répond pas sous 1,5s (endormi après 15min
+// d'inactivité sur le plan gratuit Render, ou hors ligne), on se rabat sur
+// le mode solo sans bloquer le lancement de la partie.
+const DEFAULT_MP_SERVER = 'wss://thefall-io-server.onrender.com';
 function getMpServerUrl() {
-  return loadJSON('thefall_mp_server', '') || '';
+  const stored = loadJSON('thefall_mp_server', null);
+  return stored === null ? DEFAULT_MP_SERVER : stored;
 }
 
 function setMpStatus(text) {
