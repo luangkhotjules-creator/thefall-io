@@ -1559,8 +1559,15 @@ function updatePlayer(delta) {
       // de bordure) est décidée par le serveur, pour que tous les joueurs la
       // voient au même moment. On ne (re-)demande que si elle n'a pas déjà
       // été enclenchée (évite de spammer le réseau tant qu'on reste dessus).
+      // Le passage au rouge est en revanche affiché tout de suite côté client
+      // (prédiction locale) pour ne pas attendre l'aller-retour réseau avant
+      // le premier retour visuel — idempotent avec le "blockBreak" du serveur
+      // qui arrive juste après (voir applyBreakingVisual).
       if (multiplayerActive && block.gx >= 0) {
-        if (!block.breaking) sendWS({ t: 'requestBreak', col: block.gx, row: block.gz });
+        if (!block.breaking) {
+          applyBreakingVisual(block);
+          sendWS({ t: 'requestBreak', col: block.gx, row: block.gz });
+        }
       } else {
         startBreaking(block);
       }
