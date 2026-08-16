@@ -379,7 +379,7 @@ const ARENA_MAX_Z = hexMaxZ - GRID_CENTER_Z + ARENA_MARGIN_Z;
    ========================================================================= */
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-const SKY_HORIZON_COLOR = 0xdcf3ff;
+const SKY_HORIZON_COLOR = 0xffc9e6;
 scene.background = new THREE.Color(SKY_HORIZON_COLOR);
 // Fog douce et claire (vibe jeu .io ensoleillé) : sert surtout à fondre
 // l'horizon dans le dôme de ciel, pas à assombrir l'arène de jeu.
@@ -433,16 +433,20 @@ scene.add(rim);
    CIEL + NUAGES (vibe jeu .io colorée et ensoleillée)
    ========================================================================= */
 {
-  // Dôme de ciel : dégradé vertical par couleurs de sommets, du bleu vif au
-  // zénith vers un bleu très clair à l'horizon (se fond avec le fog/fond).
+  // Dôme de ciel : dégradé à 3 tons vifs façon jeu de fête (.io) — rose pêche
+  // à l'horizon, cyan au milieu, violet au zénith — plutôt qu'un simple ciel
+  // bleu réaliste. Se fond avec le fog/fond à l'horizon.
   const skyGeo = new THREE.SphereGeometry(300, 24, 16);
-  const topColor = new THREE.Color(0x3fa9ff);
   const horizonColor = new THREE.Color(SKY_HORIZON_COLOR);
+  const midColor = new THREE.Color(0x3fc9ff);
+  const zenithColor = new THREE.Color(0x7a4fe0);
   const skyColors = [];
   const skyPos = skyGeo.attributes.position;
+  const c = new THREE.Color();
   for (let i = 0; i < skyPos.count; i++) {
     const t = THREE.MathUtils.clamp((skyPos.getY(i) / 300 + 0.15) / 0.65, 0, 1);
-    const c = horizonColor.clone().lerp(topColor, t);
+    if (t < 0.5) c.copy(horizonColor).lerp(midColor, t * 2);
+    else c.copy(midColor).lerp(zenithColor, (t - 0.5) * 2);
     skyColors.push(c.r, c.g, c.b);
   }
   skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(skyColors, 3));
@@ -495,12 +499,46 @@ function updateClouds(delta) {
 // par les formules axiales ci-dessus pour un pavage sans espace.
 const blockGeo = new THREE.CylinderGeometry(HEX_SIZE, HEX_SIZE, BLOCK_HEIGHT, 6);
 const COLOR_WARN = new THREE.Color(0xff3b30);
-// Palette vive façon jeu .io : chaque hexagone pioche une couleur au hasard
-// à sa création (voir pickBlockColor) et la retrouve à chaque réapparition
-// (stockée dans block.baseColor), au lieu d'une teinte unique et sombre.
+const COLOR_WHITE = new THREE.Color(0xffffff);
+// Palette vive façon jeu .io : chaque hexagone reçoit à sa création un
+// dégradé entre deux couleurs prises au hasard dans cette liste (voir
+// applyBlockGradient), au lieu d'une teinte plate unique. Le dégradé est
+// "peint" en dur dans la géométrie (vertex colors) ; le rouge d'alerte à la
+// cassure passe donc par une bascule vertexColors→off sur le matériau (voir
+// setBlockBreakingTint) pour rester net et lisible quelle que soit la
+// combinaison de couleurs du bloc.
 const BLOCK_PALETTE = [0x2e9bff, 0x35d488, 0x27d9c9, 0xa070ff, 0xff7de0, 0xffb64d];
-function pickBlockColor() {
-  return new THREE.Color(BLOCK_PALETTE[Math.floor(Math.random() * BLOCK_PALETTE.length)]);
+function pickTwoBlockColors() {
+  const a = BLOCK_PALETTE[Math.floor(Math.random() * BLOCK_PALETTE.length)];
+  let b = BLOCK_PALETTE[Math.floor(Math.random() * BLOCK_PALETTE.length)];
+  if (b === a) b = BLOCK_PALETTE[(BLOCK_PALETTE.indexOf(a) + 1) % BLOCK_PALETTE.length];
+  return [new THREE.Color(a), new THREE.Color(b)];
+}
+// Clone la géométrie partagée et peint un dégradé linéaire (colorA → colorB)
+// le long de l'axe X local, visible sur la face du dessus vue par le joueur.
+function applyBlockGradient(sharedGeo, colorA, colorB) {
+  const geo = sharedGeo.clone();
+  const pos = geo.attributes.position;
+  let minX = Infinity, maxX = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+  const range = Math.max(maxX - minX, 1e-5);
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    c.copy(colorA).lerp(colorB, (pos.getX(i) - minX) / range);
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+function setBlockBreakingTint(block, breaking) {
+  block.mesh.material.vertexColors = !breaking;
+  block.mesh.material.color.copy(breaking ? COLOR_WARN : COLOR_WHITE);
+  block.mesh.material.needsUpdate = true;
 }
 
 // Contour partagé pour délimiter chaque hexagone (ajouté en enfant de chaque
@@ -546,9 +584,10 @@ function gridToWorld(gx, gz) {
   return { x: p.x - GRID_CENTER_X, z: p.z - GRID_CENTER_Z };
 }
 
-function makeBlockMaterial(color) {
+function makeBlockMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: color.clone(),
+    color: COLOR_WHITE.clone(), // teinte neutre : le dégradé vient des vertex colors de la géométrie
+    vertexColors: true,
     roughness: 0.55,
     metalness: 0.15,
     emissive: 0x000000
@@ -565,9 +604,10 @@ function buildArena() {
   for (let gx = 0; gx < GRID_SIZE; gx++) {
     for (let gz = 0; gz < GRID_SIZE; gz++) {
       const { x, z } = gridToWorld(gx, gz);
-      const baseColor = pickBlockColor();
-      const mat = makeBlockMaterial(baseColor);
-      const mesh = new THREE.Mesh(blockGeo, mat);
+      const [colorA, colorB] = pickTwoBlockColors();
+      const geo = applyBlockGradient(blockGeo, colorA, colorB);
+      const mat = makeBlockMaterial();
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, z);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -575,7 +615,7 @@ function buildArena() {
       blocksGroup.add(mesh);
 
       const block = {
-        mesh, gx, gz, x, z, baseColor,
+        mesh, gx, gz, x, z,
         alive: true,
         breaking: false,
         falling: false,
@@ -604,8 +644,9 @@ function buildBorderFillers() {
     const geo = isOddRow ? fillerGeoLeft : fillerGeoRight;
     const edgesGeo = isOddRow ? fillerEdgesGeoLeft : fillerEdgesGeoRight;
 
-    const baseColor = pickBlockColor();
-    const mesh = new THREE.Mesh(geo, makeBlockMaterial(baseColor));
+    const [colorA, colorB] = pickTwoBlockColors();
+    const gradGeo = applyBlockGradient(geo, colorA, colorB);
+    const mesh = new THREE.Mesh(gradGeo, makeBlockMaterial());
     mesh.position.set(fillerX, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -613,7 +654,7 @@ function buildBorderFillers() {
     blocksGroup.add(mesh);
 
     const block = {
-      mesh, gx: -1, gz: -1, x: fillerX, z, baseColor,
+      mesh, gx: -1, gz: -1, x: fillerX, z,
       alive: true,
       breaking: false,
       falling: false,
@@ -668,7 +709,7 @@ function findBlockUnderPlayer(x, z) {
 function applyBreakingVisual(block) {
   if (!block.alive || block.breaking) return;
   block.breaking = true;
-  block.mesh.material.color.copy(COLOR_WARN);
+  setBlockBreakingTint(block, true);
   block.mesh.material.emissive.set(0x551010);
 }
 
@@ -713,7 +754,7 @@ function respawnBlock(block) {
   block.mesh.position.set(block.x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, block.z);
   block.mesh.rotation.set(0, 0, 0);
   block.mesh.scale.set(0.001, 0.001, 0.001);
-  block.mesh.material.color.copy(block.baseColor);
+  setBlockBreakingTint(block, false);
   block.mesh.material.emissive.set(0x000000);
   block.popIn = 0;
   destroyedCount = Math.max(0, destroyedCount - 1);
@@ -742,7 +783,7 @@ function regenerateAllInstant() {
     block.mesh.position.set(block.x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, block.z);
     block.mesh.rotation.set(0, 0, 0);
     block.mesh.scale.set(0.001, 0.001, 0.001);
-    block.mesh.material.color.copy(block.baseColor);
+    setBlockBreakingTint(block, false);
     block.mesh.material.emissive.set(0x224488);
     block.popIn = 0;
   });
@@ -1055,26 +1096,53 @@ const SHOULDER_Y = 1.38; // hauteur des épaules (haut du torse)
 
 // Fabrique un personnage (torse + tête + 4 membres) : réutilisée pour le
 // joueur ET pour les bots, avec des couleurs différentes pour les distinguer.
+// Silhouette "bean" façon Fall Guys/Stumble Guys : une seule forme arrondie
+// et reconnaissable, partagée par tous les personnages (joueur, bots,
+// joueurs distants). Seules les couleurs (bodyColor/skinColor, cf. SKINS et
+// le futur mode personnalisation) différencient un joueur d'un autre — la
+// forme elle-même ne varie jamais, par design.
 function buildCharacterGroup(bodyColor, skinColor) {
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.55, metalness: 0.1 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.6 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.5, metalness: 0.08 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.55 });
+  const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+  const eyePupilMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.4 });
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, SHOULDER_Y - HIP_Y, 0.34), bodyMat);
+  // Torse arrondi (capsule) plutôt qu'un pavé anguleux — le "bean" trapu qui
+  // définit la silhouette du jeu.
+  const torsoTotalHeight = SHOULDER_Y - HIP_Y;
+  const torsoRadius = 0.3;
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(torsoRadius, Math.max(torsoTotalHeight - torsoRadius * 2, 0.02), 4, 14),
+    bodyMat
+  );
   torso.position.y = (HIP_Y + SHOULDER_Y) / 2;
   torso.castShadow = true;
   torso.receiveShadow = true;
   group.add(torso);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 16), skinMat);
-  head.position.y = SHOULDER_Y + 0.35;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 16), skinMat);
+  head.position.y = SHOULDER_Y + 0.36;
   head.castShadow = true;
   group.add(head);
+
+  // Petits yeux façon mascotte (toujours tournés vers l'avant local +Z, le
+  // sens de déplacement par défaut — voir state.facingAngle) : ajoutent du
+  // caractère sans dépendre d'une texture/image externe.
+  const eyeGeo = new THREE.SphereGeometry(0.055, 10, 10);
+  const pupilGeo = new THREE.SphereGeometry(0.028, 8, 8);
+  [-1, 1].forEach(side => {
+    const eye = new THREE.Mesh(eyeGeo, eyeWhiteMat);
+    eye.position.set(side * 0.1, head.position.y + 0.02, 0.24);
+    const pupil = new THREE.Mesh(pupilGeo, eyePupilMat);
+    pupil.position.set(side * 0.1, head.position.y + 0.02, 0.285);
+    group.add(eye, pupil);
+  });
 
   function makeLimb(pivotX, pivotY, length, radius, material) {
     const pivot = new THREE.Group();
     pivot.position.set(pivotX, pivotY, 0);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(radius * 2, length, radius * 2), material);
+    const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(length - radius * 2, 0.02), 4, 8), material);
     mesh.position.y = -length / 2;
     mesh.castShadow = true;
     pivot.add(mesh);
@@ -1082,10 +1150,10 @@ function buildCharacterGroup(bodyColor, skinColor) {
     return pivot;
   }
 
-  const legL = makeLimb(-0.16, HIP_Y, HIP_Y, 0.13, bodyMat);       // touche le sol (y=0) exactement
-  const legR = makeLimb(0.16, HIP_Y, HIP_Y, 0.13, bodyMat);
-  const armL = makeLimb(-0.42, SHOULDER_Y, 0.58, 0.1, skinMat);
-  const armR = makeLimb(0.42, SHOULDER_Y, 0.58, 0.1, skinMat);
+  const legL = makeLimb(-0.17, HIP_Y, HIP_Y, 0.14, bodyMat);       // touche le sol (y=0) exactement
+  const legR = makeLimb(0.17, HIP_Y, HIP_Y, 0.14, bodyMat);
+  const armL = makeLimb(-0.44, SHOULDER_Y, 0.58, 0.12, skinMat);
+  const armR = makeLimb(0.44, SHOULDER_Y, 0.58, 0.12, skinMat);
 
   return { group, torso, head, legL, legR, armL, armR, bodyMat, skinMat };
 }
