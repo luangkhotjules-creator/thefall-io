@@ -59,14 +59,15 @@
     display: none; min-width: 300px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
   }
   .modal h2 { margin: 0 0 6px; font-size: 28px; letter-spacing: 1px; color: #ff5566; }
+  .modal h2.victory-title { color: #ffd23f; text-shadow: 0 0 24px rgba(255,210,63,.6); }
   .modal p { margin: 6px 0; opacity: .85; }
   .modal .score-final { font-size: 40px; font-weight: 900; color: #00ff88; margin: 14px 0; }
-  button#retryBtn {
+  button#retryBtn, button#victoryContinueBtn {
     margin-top: 16px; padding: 12px 30px; font-size: 16px; cursor: pointer; border: none;
     background: #00ff88; color: #06210f; font-weight: 800; border-radius: 8px; letter-spacing: 1px;
     transition: transform .15s ease, background .15s ease;
   }
-  button#retryBtn:hover { background: #33ffa2; transform: translateY(-2px); }
+  button#retryBtn:hover, button#victoryContinueBtn:hover { background: #33ffa2; transform: translateY(-2px); }
 
   #flash {
     position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none;
@@ -219,6 +220,13 @@
   <div class="score-final"><span id="finalScore">0</span></div>
   <button id="retryBtn">Rejouer</button>
   <button id="gameoverMenuBtn" class="secondary-btn">Menu</button>
+</div>
+
+<div id="victory" class="modal">
+  <h2 class="victory-title">🏆 VICTOIRE !</h2>
+  <p>Dernier·e en vie sur l'arène.</p>
+  <div class="score-final"><span id="victoryScore">0</span></div>
+  <button id="victoryContinueBtn">Continuer</button>
 </div>
 
 <div id="homeScreen" class="screen">
@@ -800,6 +808,31 @@ function regenerateAllInstant() {
   destroyedCount = blocks.filter(b => !b.alive).length;
 }
 
+// Nouvelle manche en multijoueur ("arenaReset" du serveur) : contrairement à
+// regenerateAllInstant (régénération de masse en cours de partie, qui laisse
+// les cassures en cours se terminer), ici TOUT redevient immédiatement
+// intact et visible sans animation de pop-in — c'est un vrai début de manche.
+function applyArenaReset() {
+  blocks.forEach(block => {
+    if (block.breakTimer) clearTimeout(block.breakTimer);
+    if (block.respawnTimer) clearTimeout(block.respawnTimer);
+    block.breakTimer = null;
+    block.respawnTimer = null;
+    block.alive = true;
+    block.breaking = false;
+    block.falling = false;
+    block.mesh.visible = true;
+    block.mesh.position.set(block.x, BLOCK_TOP_Y - BLOCK_HEIGHT / 2, block.z);
+    block.mesh.rotation.set(0, 0, 0);
+    block.mesh.scale.set(1, 1, 1);
+    setBlockBreakingTint(block, false);
+    block.mesh.material.emissive.set(0x000000);
+  });
+  fallingBlocks = [];
+  destroyedCount = 0;
+  [...collectibles].forEach(removeCollectible);
+}
+
 function flashScreen(color) {
   const flash = document.getElementById('flash');
   flash.style.background = color || '#fff';
@@ -1343,6 +1376,8 @@ const state = {
 const scoreVal = document.getElementById('scoreVal');
 const gameoverModal = document.getElementById('gameover');
 const finalScoreEl = document.getElementById('finalScore');
+const victoryModalEl = document.getElementById('victory');
+const victoryScoreEl = document.getElementById('victoryScore');
 const activeBoostsEl = document.getElementById('activeBoosts');
 
 function isKeyDown(...codes) { return codes.some(c => keys[c]); }
@@ -1417,9 +1452,9 @@ jumpBtnTouchEl.addEventListener('touchcancel', (e) => { keys['Space'] = false; }
    BOOSTS ACTIFS (barre qui descend, en haut à droite)
    ========================================================================= */
 let activeEffects = []; // { key, name, duration, expiresAt, color, onExpire, el }
-// Passe à true en "finale" (5 joueurs restants) : pas encore câblé côté
-// serveur (nécessite un suivi des joueurs éliminés), donc toujours false pour
-// l'instant — le cap de boosts ci-dessous est déjà prêt pour ce mode.
+// Doit rester cohérent avec FINALE_THRESHOLD côté server.js.
+const FINALE_THRESHOLD = 5;
+// Passe à true à la réception du message serveur "finale" (voir handleWSMessage).
 let matchFinale = false;
 
 function hasEffect(key) {
@@ -1836,6 +1871,15 @@ function triggerGameOver() {
   state.running = false;
   finalScoreEl.textContent = Math.floor(state.score);
   gameoverModal.style.display = 'block';
+  // Signale au serveur qu'on est éliminé (décrémente les joueurs vivants de
+  // la salle, peut déclencher la finale puis la fin de manche) — le serveur
+  // relancera automatiquement une nouvelle manche pour tout le monde ensuite.
+  if (multiplayerActive) sendWS({ t: 'fell' });
+}
+
+function showVictoryScreen() {
+  victoryScoreEl.textContent = Math.floor(state.score);
+  victoryModalEl.style.display = 'block';
 }
 
 // Points de départ espacés en cercle près du bord de l'arène (un par joueur,
@@ -1972,7 +2016,19 @@ function updateMatchTransition(delta) {
   }
 }
 
-document.getElementById('retryBtn').addEventListener('click', startMatchWithDropIn);
+document.getElementById('retryBtn').addEventListener('click', () => {
+  // En multijoueur, la manche redémarre automatiquement pour tout le monde
+  // (voir case 'roundStart') : pas de relance locale, qui désynchroniserait
+  // ce joueur (redevenu "vivant" localement alors que le serveur le sait
+  // éliminé) du reste de la salle.
+  if (multiplayerActive) return;
+  startMatchWithDropIn();
+});
+document.getElementById('victoryContinueBtn').addEventListener('click', () => {
+  victoryModalEl.style.display = 'none';
+  uiPhase = 'home';
+  showHome();
+});
 
 /* =========================================================================
    MULTIJOUEUR (WebSocket, optionnel) — voir server.js.
@@ -2266,6 +2322,57 @@ function handleWSMessage(msg) {
 
     case 'shot':
       spawnVisualProjectile(msg);
+      break;
+
+    case 'arenaReset':
+      applyArenaReset();
+      break;
+
+    // Nouvelle manche : le serveur donne juste un index de spawn parmi
+    // totalSpawns, le client calcule la position (même formule qu'en solo,
+    // voir computeSpawnRing) et rejoue la transition chute+décompte locale.
+    case 'roundStart': {
+      matchFinale = false;
+      const spawns = computeSpawnRing(Math.max(1, msg.totalSpawns));
+      const sp = spawns[msg.spawnIndex] || { x: 0, z: 0 };
+      [...projectiles].forEach(p => scene.remove(p.mesh));
+      projectiles = [];
+      clearAllActiveEffects();
+      player.position.set(sp.x, BLOCK_TOP_Y, sp.z);
+      player.quaternion.identity();
+      state.velocityY = 0;
+      state.onGround = true;
+      state.jumpsUsed = 0;
+      state.score = 0;
+      state.facingAngle = 0;
+      state.gameOver = false;
+      state.voidFalling = false;
+      state.lastSafeX = sp.x;
+      state.lastSafeZ = sp.z;
+      state.knockbackX = 0;
+      state.knockbackZ = 0;
+      scoreVal.textContent = '0';
+      gameoverModal.style.display = 'none';
+      victoryModalEl.style.display = 'none';
+      character.rotation.set(0, 0, 0);
+      dropLandedY = player.position.y;
+      player.position.y += 28;
+      uiPhase = 'dropping';
+      homeScreenEl.style.display = 'none';
+      break;
+    }
+
+    case 'finale':
+      matchFinale = true;
+      setMpStatus('🔥 FINALE ! Plus que ' + FINALE_THRESHOLD + ' joueurs');
+      break;
+
+    case 'roundEnd':
+      state.running = false;
+      if (msg.winnerId === myPlayerId) {
+        uiPhase = 'victory';
+        showVictoryScreen();
+      }
       break;
 
     default:
